@@ -4,13 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="64d5d59f-87fe-49b9-a415-8156c53f926c" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/NiggahushLM/test/tokenizer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/Niggahush_dev.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/Niggahush_dev.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/NiggahushLM/test/preprocesamiento.py" afterDir="false" />
-    </list>
+    <list default="true" id="64d5d59f-87fe-49b9-a415-8156c53f926c" name="Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -49,25 +43,27 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.preprocesamiento.executor": "Run",
-    "Python.tokenizer.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "git-widget-placeholder": "Zabdiel",
-    "last_opened_file_path": "C:/Users/Zabdiel Julian/Downloads/IngenieriaSoftwareII/Niggahush_dev/NiggahushLM/test/data",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ASKED_SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.model_testing.executor&quot;: &quot;Run&quot;,
+    &quot;Python.preprocesamiento.executor&quot;: &quot;Run&quot;,
+    &quot;Python.tokenizer.executor&quot;: &quot;Run&quot;,
+    &quot;Python.train_minigpt.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;Zabdiel&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/Zabdiel Julian/Downloads/IngenieriaSoftwareII/Niggahush_dev/NiggahushLM/test/data&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="C:\Users\Zabdiel Julian\Downloads\IngenieriaSoftwareII\Niggahush_dev\NiggahushLM\test\data" />
@@ -92,7 +88,10 @@
       <option name="presentableId" value="Default" />
       <updated>1755287587004</updated>
       <workItem from="1755287588183" duration="1715000" />
-      <workItem from="1755310082946" duration="6115000" />
+      <workItem from="1755310082946" duration="9858000" />
+      <workItem from="1755329815087" duration="906000" />
+      <workItem from="1755487712310" duration="162000" />
+      <workItem from="1755488120823" duration="2000" />
     </task>
     <servers />
   </component>
@@ -102,5 +101,7 @@
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/Niggahush_dev$tokenizer.coverage" NAME="tokenizer Coverage Results" MODIFIED="1755320499620" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/test" />
     <SUITE FILE_PATH="coverage/Niggahush_dev$preprocesamiento.coverage" NAME="preprocesamiento Coverage Results" MODIFIED="1755318809340" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/test" />
+    <SUITE FILE_PATH="coverage/Niggahush_dev$train_minigpt.coverage" NAME="train_minigpt Coverage Results" MODIFIED="1755322469550" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/test" />
+    <SUITE FILE_PATH="coverage/Niggahush_dev$model_testing.coverage" NAME="model_testing Coverage Results" MODIFIED="1755324181272" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/test" />
   </component>
 </project>

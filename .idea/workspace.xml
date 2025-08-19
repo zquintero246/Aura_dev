@@ -4,7 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="64d5d59f-87fe-49b9-a415-8156c53f926c" name="Changes" comment="" />
+    <list default="true" id="64d5d59f-87fe-49b9-a415-8156c53f926c" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry/CausalMultiheadAttention.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -32,6 +35,9 @@
     &quot;accountId&quot;: &quot;33da9ec7-943b-4539-afe9-4d522fdfaef6&quot;
   }
 }</component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry/CausalMultiheadAttention.py" root0="SKIP_INSPECTION" />
+  </component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 7
 }</component>
@@ -92,6 +98,7 @@
       <workItem from="1755329815087" duration="906000" />
       <workItem from="1755487712310" duration="162000" />
       <workItem from="1755488120823" duration="2000" />
+      <workItem from="1755555338129" duration="10828000" />
     </task>
     <servers />
   </component>

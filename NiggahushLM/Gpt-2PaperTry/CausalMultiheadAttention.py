@@ -12,6 +12,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import torch.optim as optim
+from transformers import GPT2Tokenizer
+
 
 class Config:
     """
@@ -204,4 +206,232 @@ class MultiHeadSelfAttention(nn.Module):
     Ahora si comienza lo gonorrea 
 """
 
+# =================================== NORMALIZACIONES Y CONEXIONES RESIDUALES ===========================================
+
+
+
+"""
+La ffn o feed forward neural network esta posicionada en el encoder y en el decoder, funciona procesando y refinando 
+la data previamente procesada por los mecanismos de atencion
+
+La ffn es una red neuronal densa o fully connected 
+
+Tiene una funcion de activacion ReLU, usada para introducir no-linearidad en el modelo, ayudando a que aprenda patrones mas complejos
+
+Dada la naturalidad secuencial de los datos de entrada, cada posicion es procesada de forma independiente por la misma FFN.
+
+Esto es similar a aplicar la misma transformacion alrededor de todas las posiciones, asegurando que se extraen de forma uniforme caracteristicas de diferentes partes de la secuencia
+
+La ffn se encuentra justamente despues de la multihead atenttion sublayer y justo despues de la post-layer normalization (post-ln) el output permanece con una dimensionalidad de 768
+
+"""
+
+
+class FFN(nn.Module):
+    """
+    Feed forward neural network
+
+    El embed_size y el sequence_length se mantienen
+
+    en el modelo de gpt-2 se usa la funcion de activacion GelU, es una funcion o lineal, se usa mayormente en modelos transformer para mejorar
+    el rendimiento y la capacidad de la red
+    Gelu pondera la entrada de una neurona segun su probabilidad bajo una distribucion gaussiana
+
+    En esencia es una mejora de hiperparametrizacion, se expande la dimensionalidad de el embed_size multiplicando por 4 y se realizan mas combinaciones no lineales
+    Luego se se comprime de vuelta a la dimensionalidad original del modelo
+
+    Como abrir 4 carriles para maniobrar y luego volver a 1, se generan 3072 canales sobre los cuales construir bases no lineales y refinar mejor el token a diferencia de si quedara
+    con 768
+
+    no debe ser a fuerzas cuadruplicada la dimensionalidad, pero asi se hizo en gpt-2
+    """
+    def __init__(self, config):
+        super().__init__()
+        self.fc1 = nn.Linear(config.embed_size, 4 * config.embed_size) #Fully connected 1
+        # Gaussian error linear unit
+        self.gelu = nn.GELU()
+        self.fc2 = nn.Linear(4 * config.embed_size, config.embed_size) # Fully connected 2 se vuelve a la dimensionalidad original para poder sumar el residual del bloque
+        self.dropout = nn.Dropout(config.dropout) # Se apagan aleatoriamente algunos componentes y escala el resto
+
+    def forward(self, x):
+        # Se pasa el token por las diferentes capas del FFN
+      x = self.fc2(self.gelu(self.fc1(x)))
+
+      return self.dropout(x)
+
+
+# ==================================== CONSTRUCCION DE LA ARQUITECTURA =========================================
+
+"""
+Se construye FINALMENTE el bloque transformer o la arquitectura del modelo 
+"""
+
+class Transformer(nn.Module):
+    """
+    Construccion del bloque transformer, capas de normalizacion y conexiones residuales
+
+    Las capas de normalizacion sirven para mantener las salidas de las diferentes capas de la red en un rango determinado para que el modelo entienda sin problemas
+    (Esto lo explico alfredo, literalmente)
+    Normalmente la normalizacion es de 0 a 1, la mas tipica
+
+    La arquitectura transformer usa dos capas de normalizacion y entre medias la capa de selfattention o atencion causal previamente construida
+
+    el diagrama del encoder de un transformer es
+
+    Output embbeding -> Masked multihead self attention -> norml -> multihead attention -> norml -> feed forward -> norml -> linear -> softmax -> output
+    """
+    def __init__(self, config):
+        super().__init__()
+        # Se normaliza todo el embbeding para evitar que se entrende de mala forma el modelo
+        self.norm1 = nn.LayerNorm(config.embed_size) # Capa de normalizacion 1
+        self.attention = MultiHeadSelfAttention(config) # Capa de atencion
+        self.norm2 = nn.LayerNorm(config.embed_size) # Capa de normalizacion 2
+        self.mlp = FFN(config) # Capa de feed forward o red neuronal fully connected
+
+        # Conexion residual
+
+    def forward(self, x):
+        x = x + self.attention(self.norm1(x))
+        x = x + self.mlp(self.norm2(x))
+        return x
+
+
+
+# ================================== CONSTRUCCION DEL MODELO =========================================
+class GPT2(nn.Module):
+    """
+    Bastante explicativo el nombre
+
+    Se agrupan todas las piezas construidas anteriormente y se agrupan
+    Aca de paso se genera el embedding de los diferentes tokens y se hace un mini for para generar las 12 capas de la arquitectura, o cuantas veces se repite el transformer
+    Se representa con Nx
+    tambien se crea una capa extra de normalizacion que conecta directamente con el output embedding llamada positional encoding
+    """
+    def __init__(self, config):
+        super().__init__()
+        # Se generan los emmbeding de los tokens
+        self.token_embed = nn.Embedding(config.vocab_size, config.embed_size)
+        # Se generan los emmbedding posicionales
+        self.pos_embed = nn.Embedding(config.max_seq_length, config.embed_size)
+        self.dropout = nn.Dropout(config.dropout)
+        # Un for para incluir el numero de capas en el transformer o repetir X veces el transformer, en nuestro caso, 12
+        self.transformers = nn.Sequential(*[Transformer(config) for _ in range(config.num_layers)])
+        self.norml = nn.LayerNorm(config.embed_size) # Capa extra de normalizacion
+
+    def forward(self, input_token):
+        """
+        batch es la cantidad de datos a pasar en cada entrenamiento y el seq_lenght la longitud de la frase o cantidad de tokens
+
+        AUN NO INVESTIGO ESTA PARTE LOL
+        ni idea de que hace la verdad
+        """
+        batch, seq_length = input_token.size()
+        pos = torch.arange(0, seq_length, dtype = torch.long, device = input_token.device).unsqueeze(0)
+        x = self.token_embed(input_token) + self.pos_embed(pos)
+        x = self.dropout(x)
+        x = self.transformers(x)
+        x = self.norml(x)
+
+        return x @ self.token_embed.weight.t()
+
+
+
+# ================================= PROCESAMIENTO DE EL DATASET =======================================
+
+
+"""
+TENGO MAMERA DE EXPLICAR ESTA PARTE 
+"""
+class SpanishCorpus(Dataset):
+    def __init__(self, data, seq_length):
+        self.text = data
+        self.seq_length = seq_length
+
+    def __len__(self):
+        return len(self.text) - self.seq_length
+
+    def __getitem__(self, idx):
+        x = self.text[idx : idx + self.seq_length]
+        y = self.text[idx + 1: idx + 1 + self.seq_length]
+        return x, y
+
+
+
+# =============================== EL MADAFAKER ENTRENAMIENTO ==========================================
+
+"""
+RAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGH
+"""
+
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+tokenizer.add_prefix_space = True
+tokenizer.pad_token = tokenizer.eos_token
+
+train_ids = torch.load(r"C:\Users\Zabdiel Julian\Downloads\IngenieriaSoftwareII\Niggahush_dev\NiggahushLM\Gpt-2PaperTry\Data\train_ids.pt")
+val_ids   = torch.load(r"C:\Users\Zabdiel Julian\Downloads\IngenieriaSoftwareII\Niggahush_dev\NiggahushLM\Gpt-2PaperTry\Data\val_ids.pt")
+
+SEQ_LEN = 128
+config = Config(
+    vocab_size=tokenizer.vocab_size,
+    max_seq_length=SEQ_LEN,
+    embed_size=768,
+    num_layers=12,
+    num_heads=12,
+    dropout=0.1,
+)
+
+SpanishDatasetTrain = SpanishCorpus(train_ids, seq_length=config.max_seq_length)
+SpanishDatasetVal   = SpanishCorpus(val_ids,   seq_length=config.max_seq_length)
+
+train_loader = DataLoader(SpanishDatasetTrain, batch_size=16, shuffle=True)
+val_loader   = DataLoader(SpanishDatasetVal,   batch_size=16, shuffle=False)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("device:", device)
+
+model = GPT2(config).to(device)
+optimizer = optim.Adam(model.parameters(), lr=3e-4)
+
+def sample(model, device, tokenizer, prompt, length=50, temperature=1.0, seq_len=SEQ_LEN):
+    model.eval()
+    tokens = tokenizer.encode(prompt, return_tensors='pt').to(device)
+    for _ in range(length):
+        tokens_ = tokens[:, -seq_len:]
+        with torch.no_grad():
+            scores = model(tokens_)
+        next_token_scores = scores[:, -1, :] / temperature
+        probs = F.softmax(next_token_scores, dim=-1)
+        next_token = torch.multinomial(probs, num_samples=1)
+        tokens = torch.cat([tokens, next_token], dim=1)
+    return tokenizer.decode(tokens[0])
+
+def train(model, loader, optimizer, epochs=5):
+    for epoch in range(epochs):
+        model.train()
+        total_loss = 0.0
+        for i, (x, y) in enumerate(loader):
+            x = x.to(device)
+            y = y.to(device)
+
+            optimizer.zero_grad()
+            scores = model(x)
+            loss = F.cross_entropy(scores.view(-1, scores.size(-1)), y.view(-1))
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+
+            if i % 200 == 0:
+                print(f'epoch: {epoch + 1}, step: {i}, loss: {loss.item():.4f}')
+                try:
+                    print(sample(model, device, tokenizer, prompt='Hola, ¿cómo', temperature=0.8, seq_len=config.max_seq_length))
+                except Exception as e:
+                    print("sample error:", e)
+                print()
+
+        epoch_loss = total_loss / max(1, len(loader))
+        print(f'epoch: {epoch + 1}, loss: {epoch_loss:.4f}')
+
+
+train(model, train_loader, optimizer, epochs=5)
 

@@ -4,7 +4,7 @@ import torch
 from transformers import GPT2Tokenizer
 
 # === Config ===
-folder = Path(r"/NiggahushLM/Gpt-2PaperTry/Data/spanish_corpus")
+folder = Path(r"/AriaLM/Gpt-2PaperTry/Data/spanish_corpus")
 pattern = "spanishText_*"      # coincide con todos tus shards
 block_size = 1024              # o 512/2048 según tu modelo
 val_ratio = 0.01               # 1% validación

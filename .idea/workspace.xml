@@ -4,28 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="64d5d59f-87fe-49b9-a415-8156c53f926c" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry/Data/archive.zip" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/NiggahushLM/Testing/Excercise1.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry/PreprocessingData.py" beforeDir="false" afterPath="$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry/Data/PreprocessingData.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/data/corpus_poems.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/data/poems.csv" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/data/poems_content.csv" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/data_blocks/train_x.npy" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/data_blocks/train_y.npy" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/data_blocks/valid_x.npy" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/data_blocks/valid_y.npy" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/model_testing.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/preprocesamiento.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/tokenizer.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/tokenizer_gpt2_es/merges.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/tokenizer_gpt2_es/special_tokens_map.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/tokenizer_gpt2_es/tokenizer.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/tokenizer_gpt2_es/tokenizer_config.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/tokenizer_gpt2_es/vocab.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/NiggahushLM/test/train_minigpt.py" beforeDir="false" />
-    </list>
+    <list default="true" id="64d5d59f-87fe-49b9-a415-8156c53f926c" name="Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -47,12 +26,12 @@
     &quot;assignee&quot;: &quot;zquintero246&quot;
   }
 }</component>
-  <component name="GithubPullRequestsUISettings">{
-  &quot;selectedUrlAndAccountId&quot;: {
-    &quot;url&quot;: &quot;https://github.com/zquintero246/Niggahush_dev&quot;,
-    &quot;accountId&quot;: &quot;33da9ec7-943b-4539-afe9-4d522fdfaef6&quot;
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/zquintero246/Aura_dev.git",
+    "accountId": "33da9ec7-943b-4539-afe9-4d522fdfaef6"
   }
-}</component>
+}]]></component>
   <component name="HighlightingSettingsPerFile">
     <setting file="file://$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry/CausalMultiheadAttention.py" root0="SKIP_INSPECTION" />
   </component>
@@ -73,6 +52,7 @@
     &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
     &quot;Python.CausalMultiheadAttention.executor&quot;: &quot;Run&quot;,
     &quot;Python.PreprocessingData.executor&quot;: &quot;Run&quot;,
+    &quot;Python.TestScript.executor&quot;: &quot;Run&quot;,
     &quot;Python.model_testing.executor&quot;: &quot;Run&quot;,
     &quot;Python.preprocesamiento.executor&quot;: &quot;Run&quot;,
     &quot;Python.tokenizer.executor&quot;: &quot;Run&quot;,
@@ -87,6 +67,7 @@
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
     &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
 }</component>
@@ -123,6 +104,15 @@
       <workItem from="1755555338129" duration="11550000" />
       <workItem from="1755609495787" duration="25606000" />
       <workItem from="1755730136324" duration="3229000" />
+      <workItem from="1755782791187" duration="3690000" />
+      <workItem from="1755891178692" duration="666000" />
+      <workItem from="1755900441018" duration="1144000" />
+      <workItem from="1756183540918" duration="5000" />
+      <workItem from="1756211357777" duration="1593000" />
+      <workItem from="1756491037777" duration="713000" />
+      <workItem from="1756624038095" duration="239000" />
+      <workItem from="1756863876560" duration="21000" />
+      <workItem from="1757564548750" duration="453000" />
     </task>
     <servers />
   </component>
@@ -135,6 +125,7 @@
     <SUITE FILE_PATH="coverage/Niggahush_dev$preprocesamiento.coverage" NAME="preprocesamiento Coverage Results" MODIFIED="1755318809340" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/test" />
     <SUITE FILE_PATH="coverage/Niggahush_dev$train_minigpt.coverage" NAME="train_minigpt Coverage Results" MODIFIED="1755322469550" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/test" />
     <SUITE FILE_PATH="coverage/Niggahush_dev$model_testing.coverage" NAME="model_testing Coverage Results" MODIFIED="1755324181272" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/test" />
-    <SUITE FILE_PATH="coverage/Niggahush_dev$CausalMultiheadAttention.coverage" NAME="CausalMultiheadAttention Coverage Results" MODIFIED="1755646999727" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry" />
+    <SUITE FILE_PATH="coverage/Niggahush_dev$TestScript.coverage" NAME="TestScript Coverage Results" MODIFIED="1756624093805" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry" />
+    <SUITE FILE_PATH="coverage/Niggahush_dev$CausalMultiheadAttention.coverage" NAME="CausalMultiheadAttention Coverage Results" MODIFIED="1755900832014" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry" />
   </component>
 </project>

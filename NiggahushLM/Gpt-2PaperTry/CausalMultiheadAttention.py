@@ -41,7 +41,7 @@ class Config:
 # ======================= MASKED MULTIHEAD SELF ATTENTION ===========================
 
 """
-    Cada cabeza de atencion se va a enfocar en extraer caracteristicas diferentes de nuestros datos o embeds (los embeds son en esencia vectores o tensores de tamaño X)
+    Cada cabeza de atencion se va a enfocar en extraer caracteristicas diferentes de nuestros datos o embeds (los embeds son en esencia matrices o tensores de tamaño X)
     
     h = num_heads, tiene que ser un divisor exacto de nuestro embed_size, por eso en gpt-2 se utilizaron 12 
     
@@ -149,7 +149,7 @@ class MultiHeadSelfAttention(nn.Module):
     def forward(self, x):
         batch, seq_length, embed_dim = x.size() #MB, T, D = 16, 128, 768
         #Calcular multihead Q, k, V
-        # x@W_q.T => (-1, 128, 1768) @ (768, 768).T => (-1, 128, 768)
+        # x@W_q.T => (-1, 128,+ 1768) @ (768, 768).T => (-1, 128, 768)
         Q = self.W_q(x).view(batch, seq_length, self.num_heads, self.head_dim).transpose(1, 2)
         K = self.W_k(x).view(batch, seq_length, self.num_heads, self.head_dim).transpose(1, 2)
         V = self.W_v(x).view(batch, seq_length, self.num_heads, self.head_dim).transpose(1, 2)
@@ -188,20 +188,6 @@ class MultiHeadSelfAttention(nn.Module):
 
 """
     TODO LO DE ARRIBA ES LA IMPLEMENTACION DEL MASKED MULTIHEAD SELF ATTENTION RAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGH
-    
-    ⠀⠀⠀⣠⣤⣤⣤⣤⣤⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⢰⡿⠋⠁⠀⠀⠈⠉⠙⠻⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⢀⣿⠇⠀⢀⣴⣶⡾⠿⠿⠿⢿⣿⣦⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⣀⣀⣸⡿⠀⠀⢸⣿⣇⠀⠀⠀⠀⠀⠀⠙⣷⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⣾⡟⠛⣿⡇⠀⠀⢸⣿⣿⣷⣤⣤⣤⣤⣶⣶⣿⠇⠀⠀⠀⠀⠀⠀⠀⣀⠀⠀
-⢀⣿⠀⢀⣿⡇⠀⠀⠀⠻⢿⣿⣿⣿⣿⣿⠿⣿⡏⠀⠀⠀⠀⢴⣶⣶⣿⣿⣿⣆
-⢸⣿⠀⢸⣿⡇⠀⠀⠀⠀⠀⠈⠉⠁⠀⠀⠀⣿⡇⣀⣠⣴⣾⣮⣝⠿⠿⠿⣻⡟
-⢸⣿⠀⠘⣿⡇⠀⠀⠀⠀⠀⠀⠀⣠⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠁⠉⠀
-⠸⣿⠀⠀⣿⡇⠀⠀⠀⠀⠀⣠⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠟⠉⠀⠀⠀⠀
-⠀⠻⣷⣶⣿⣇⠀⠀⠀⢠⣼⣿⣿⣿⣿⣿⣿⣿⣛⣛⣻⠉⠁⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⢸⣿⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⢸⣿⣀⣀⣀⣼⡿⢿⣿⣿⣿⣿⣿⡿⣿⣿⡿⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠙⠛⠛⠛⠋⠁⠀⠙⠻⠿⠟⠋⠑⠛⠋⠀
 
     Ahora si comienza lo gonorrea 
 """

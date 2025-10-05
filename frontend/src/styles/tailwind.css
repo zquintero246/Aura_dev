@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Global Text Colors */
+    --text-primary: #1d1d1d;
+    --text-secondary: #686868;
+    --text-white: #ffffff;
+    --text-white-muted: #ffffff7f;
+
+    /* Global Background Colors */
+    --bg-primary: #1d1d1d42;
+    --bg-secondary: #2d2d2d;
+    --bg-accent: #ca5cf5;
+
+    /* Global Border Colors */
+    --border-primary: #686868;
+
+    /* Typography Variables */
+    --font-size-sm: 14px;
+    --font-size-base: 15px;
+    --font-size-lg: 20px;
+    --font-size-hero: 62px;
+
+    /* Font Weight Variables */
+    --font-weight-normal: 400;
+    --font-weight-medium: 500;
+    --font-weight-bold: 700;
+
+    /* Line Height Variables */
+    --line-height-sm: 17px;
+    --line-height-base: 19px;
+    --line-height-lg: 24px;
+    --line-height-hero: 76px;
+
+    /* Spacing Variables */
+    --spacing-xs: 4px;
+    --spacing-sm: 6px;
+    --spacing-md: 10px;
+    --spacing-lg: 12px;
+    --spacing-xl: 14px;
+    --spacing-2xl: 22px;
+    --spacing-3xl: 28px;
+    --spacing-4xl: 30px;
+    --spacing-5xl: 46px;
+    --spacing-hero: 278px;
+
+    /* Border Radius Variables */
+    --radius-md: 10px;
+    --radius-lg: 14px;
+
+    /* Border Width Variables */
+    --border-width-sm: 1px;
+
+    /* Component-specific Colors */
+    --header-padding-x: 30px;
+    --header-padding-y: 14px;
+    --logo-width: 90px;
+    --button-padding-sm: 4px;
+    --button-padding-md: 10px;
+    --button-padding-lg: 22px;
+    --button-padding-xl: 46px;
+  }
+  .theme {
+    --animate-aurora: aurora 8s ease-in-out infinite alternate;
+    --animate-shiny-text: shiny-text 8s infinite;
+    --animate-gradient: gradient 8s linear infinite;
+  }
+  
+}
+
+@theme inline {
+  --animate-gradient: gradient 8s linear infinite;
+ 
+  @keyframes gradient {
+    to {
+      background-position: var(--bg-size, 300%) 0;
+    }
+  }
+}
+
+

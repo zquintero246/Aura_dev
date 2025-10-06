@@ -54,6 +54,7 @@
     "@heroui/react": "^2.8.4",
     "@tailwindcss/typography": "^0.5.16",
     "class-variance-authority": "^0.7.1",
+    "framer-motion": "^12.23.22",
     "gsap": "^3.13.0",
     "lucide-react": "^0.544.0",
     "motion": "^12.23.13",

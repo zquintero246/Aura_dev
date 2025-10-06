@@ -67,7 +67,7 @@ const HeroSection = ({ className }: HeroSectionProps) => {
             {/* CTA Button */}
             <div className="z-10 flex min-h-4 items-center justify-center mt-6">
               <Link
-                to="/signup"
+                to="/register"
                 className={cn(
                   'group rounded-full border border-black/5 bg-[#020412b7] text-base text-[#686868] transition-all ease-in hover:cursor-pointer select-none active:scale-95 duration-200 dark:border-white/5'
                 )}

@@ -326,7 +326,7 @@ def load_dataset(tensor_path: Path) -> torch.Tensor:
     return tensor.long()
 
 
-def tokenize_oscar_stream(
+def tokenize_text_stream(
     dataset_iter: Iterable[dict],
     tokenizer: GPT2Tokenizer,
     eos_id: int,
@@ -337,12 +337,7 @@ def tokenize_oscar_stream(
     tokens_target = max_tokens if max_tokens is not None else float("inf")
     sample_target = max_samples if max_samples is not None else float("inf")
 
-    progress = tqdm(
-        dataset_iter,
-        desc="Tokenizando OSCAR",
-        total=max_samples,
-        leave=False,
-    )
+    progress = tqdm(dataset_iter, desc="Tokenizando corpus", total=max_samples, leave=False)
 
     for idx, sample in enumerate(progress, start=1):
         if idx - 1 >= sample_target:
@@ -372,18 +367,19 @@ def tokenize_oscar_stream(
     progress.close()
 
     if len(token_ids) < 2:
-        raise RuntimeError("No se obtuvieron tokens suficientes del corpus OSCAR.")
+        raise RuntimeError("No se obtuvieron tokens suficientes del corpus indicado.")
 
     return torch.tensor(token_ids, dtype=torch.long)
 
 
-def prepare_oscar_dataset(
+def prepare_hf_dataset(
     data_dir: Path,
     tokenizer: GPT2Tokenizer,
     seq_len: int,
     val_ratio: float,
-    oscar_config: str,
-    oscar_split: str,
+    dataset_name: str,
+    dataset_config: str,
+    dataset_split: str,
     max_samples: Optional[int],
     max_tokens: Optional[int],
     force: bool = False,
@@ -392,7 +388,7 @@ def prepare_oscar_dataset(
         from datasets import load_dataset
     except ImportError as exc:  # pragma: no cover - se informa al usuario
         raise ImportError(
-            "Se requiere el paquete 'datasets' para descargar OSCAR. "
+            "Se requiere el paquete 'datasets' para descargar el corpus seleccionado. "
             "Instálalo con `pip install datasets`"
         ) from exc
 
@@ -403,15 +399,25 @@ def prepare_oscar_dataset(
     if not force and train_path.exists() and val_path.exists():
         return
 
-    print("Descargando y tokenizando OSCAR…")
+    dataset_id: str
+    if dataset_name.lower() == "oscar":
+        dataset_id = "oscar-corpus/OSCAR-2201"
+    elif dataset_name.lower() == "wikipedia":
+        dataset_id = "wikipedia"
+    else:
+        raise ValueError(
+            "dataset-name debe ser 'oscar' o 'wikipedia'."
+        )
+
+    print(f"Descargando y tokenizando {dataset_id} ({dataset_config}, {dataset_split})…")
     dataset = load_dataset(
-        "oscar-corpus/OSCAR-2201",
-        oscar_config,
-        split=oscar_split,
+        dataset_id,
+        dataset_config,
+        split=dataset_split,
     )
 
     eos_id = tokenizer.eos_token_id
-    tokens = tokenize_oscar_stream(
+    tokens = tokenize_text_stream(
         dataset,
         tokenizer=tokenizer,
         eos_id=eos_id,
@@ -449,7 +455,9 @@ def prepare_oscar_dataset(
             "train_tokens": train_ids.numel(),
             "val_tokens": val_ids.numel(),
             "val_ratio": val_ratio,
-            "oscar_split": oscar_split,
+            "dataset": dataset_id,
+            "dataset_config": dataset_config,
+            "dataset_split": dataset_split,
         }
     )
 
@@ -464,15 +472,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup-ratio", type=float, default=0.1)
     parser.add_argument("--checkpoint-freq", type=int, default=1)
     parser.add_argument(
-        "--prepare-oscar",
+        "--prepare",
         action="store_true",
-        help="Descargar y tokenizar OSCAR antes de entrenar",
+        help="Descargar y tokenizar el dataset antes de entrenar",
     )
     parser.add_argument("--val-ratio", type=float, default=0.01)
-    parser.add_argument("--oscar-config", default="es")
-    parser.add_argument("--oscar-split", default="train[:1%]")
-    parser.add_argument("--oscar-max-samples", type=int, default=None)
-    parser.add_argument("--oscar-max-tokens", type=int, default=None)
+    parser.add_argument(
+        "--dataset-name",
+        default="wikipedia",
+        choices=["oscar", "wikipedia"],
+        help="Nombre del dataset de Hugging Face a utilizar",
+    )
+    parser.add_argument(
+        "--dataset-config",
+        default=None,
+        help="Configuración del dataset (idioma/version)",
+    )
+    parser.add_argument(
+        "--dataset-split",
+        default=None,
+        help="Split del dataset a descargar",
+    )
+    parser.add_argument("--dataset-max-samples", type=int, default=None)
+    parser.add_argument("--dataset-max-tokens", type=int, default=None)
     parser.add_argument(
         "--force-download",
         action="store_true",
@@ -497,20 +519,31 @@ def main() -> None:
     tokenizer.add_prefix_space = True
     tokenizer.pad_token = tokenizer.eos_token
 
-    prepare_oscar_dataset(
-        data_dir,
-        tokenizer,
-        seq_len=args.seq_len,
-        val_ratio=args.val_ratio,
-        oscar_config=args.oscar_config,
-        oscar_split=args.oscar_split,
-        max_samples=args.oscar_max_samples,
-        max_tokens=args.oscar_max_tokens,
-        force=args.prepare_oscar or args.force_download,
-    )
+    dataset_dir = data_dir / args.dataset_name.lower()
 
-    train_ids = load_dataset(data_dir / "train_ids.pt")
-    val_ids = load_dataset(data_dir / "val_ids.pt")
+    dataset_config = args.dataset_config
+    dataset_split = args.dataset_split
+    if dataset_config is None:
+        dataset_config = "es" if args.dataset_name == "oscar" else "20231101.es"
+    if dataset_split is None:
+        dataset_split = "train[:1%]" if args.dataset_name == "oscar" else "train"
+
+    if args.prepare or args.force_download or not (dataset_dir / "train_ids.pt").exists():
+        prepare_hf_dataset(
+            dataset_dir,
+            tokenizer,
+            seq_len=args.seq_len,
+            val_ratio=args.val_ratio,
+            dataset_name=args.dataset_name,
+            dataset_config=dataset_config,
+            dataset_split=dataset_split,
+            max_samples=args.dataset_max_samples,
+            max_tokens=args.dataset_max_tokens,
+            force=args.force_download,
+        )
+
+    train_ids = load_dataset(dataset_dir / "train_ids.pt")
+    val_ids = load_dataset(dataset_dir / "val_ids.pt")
 
     seq_len = args.seq_len
     config = Config(

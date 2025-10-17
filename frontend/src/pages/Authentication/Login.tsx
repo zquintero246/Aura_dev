@@ -73,9 +73,8 @@ const Login = () => {
 
               <div className="h-px bg-white/10" />
 
-              {/* Form */}
+              {/* Formulario */}
               <div className="px-6 sm:px-8 md:px-10 py-8">
-                {/* Email */}
                 <div className="max-w-[460px] mx-auto">
                   <label
                     htmlFor="email"
@@ -93,7 +92,7 @@ const Login = () => {
                   />
                 </div>
 
-                {/* Password + ojo */}
+                {/* Contraseña */}
                 <div className="max-w-[460px] mx-auto mt-7 relative">
                   <label
                     htmlFor="password"
@@ -156,7 +155,7 @@ const Login = () => {
                   </div>
                 </div>
 
-                {/* Forgot password */}
+                {/* Olvidaste tu contraseña */}
                 <div className="max-w-[460px] mx-auto mt-3">
                   <button
                     type="button"

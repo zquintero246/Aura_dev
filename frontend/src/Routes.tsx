@@ -1,11 +1,11 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 
-// Import page components
 import HomePage from './pages/Home';
-import Register from './pages/Authentication/register';
+import Register from './pages/Authentication/Register';
 import VeriVerificationCode from './pages/Authentication/VerificationCode';
-import Login from './pages/Authentication/login';
+import Login from './pages/Authentication/Login';
+import ChatHome from './pages/Chat/AppLayout';
 
 const AppRoutes = () => {
   return (
@@ -15,6 +15,7 @@ const AppRoutes = () => {
         <Route path="/register" element={<Register />} />
         <Route path="/verify-code" element={<VeriVerificationCode />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/chat" element={<ChatHome />} />
       </Routes>
     </Router>
   );

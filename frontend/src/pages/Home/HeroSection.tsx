@@ -13,12 +13,10 @@ interface HeroSectionProps {
 }
 
 const HeroSection = ({ className }: HeroSectionProps) => {
-  // Bloquear menú contextual (clic derecho)
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
   };
 
-  // Bloquear copiar (Ctrl+C, menú Editar, etc.)
   const handleCopy = (e: React.ClipboardEvent) => {
     e.preventDefault();
   };
@@ -53,7 +51,6 @@ const HeroSection = ({ className }: HeroSectionProps) => {
             Presentamos <AuroraText>Aura</AuroraText>
           </h1>
 
-          {/* Content Section */}
           <div
             className="flex flex-col gap-spacing-sm justify-center items-center 
     w-full sm:w-[80%] md:w-[70%] lg:w-[42%] mt-4"
@@ -64,7 +61,7 @@ const HeroSection = ({ className }: HeroSectionProps) => {
               gratuito.
             </p>
 
-            {/* CTA Button */}
+            {/* Button */}
             <div className="z-10 flex min-h-4 items-center justify-center mt-6">
               <Link
                 to="/register"
@@ -89,9 +86,9 @@ const HeroSection = ({ className }: HeroSectionProps) => {
           </div>
         </div>
       </section>
-      {/* Sección 2 con fondo interactivo tipo “hover” */}
+      {/* Sección 2 */}
       <section className="relative w-full min-h-screen flex items-center justify-center overflow-hidden">
-        {/* Fondo interactivo con puntos */}
+        {/* Fondo */}
         <div className="absolute inset-0 z-0">
           <DotGrid
             dotSize={8}
@@ -112,7 +109,6 @@ const HeroSection = ({ className }: HeroSectionProps) => {
         {/* Difuminado inferior */}
         <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-[#020412] to-transparent pointer-events-none" />
 
-        {/* Capa difuminada encima del fondo */}
         <div
           className="absolute inset-0 z-[1] pointer-events-none"
           style={{
@@ -141,7 +137,7 @@ const HeroSection = ({ className }: HeroSectionProps) => {
             </p>
           </div>
 
-          {/* Columna Derecha - Video Thumbnail */}
+          {/* Columna Derecha - Video */}
           <div className="relative flex justify-center">
             <HeroVideoDialog
               className="block dark:hidden rounded-xl overflow-hidden shadow-lg"
@@ -165,7 +161,7 @@ const HeroSection = ({ className }: HeroSectionProps) => {
       <section className="w-full bg-background-primary min-h-screen flex items-center justify-center">
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl font-bold text-white">Características</h2>
-          <p className="mt-4 text-lg text-text-secondary">Explica aquí más detalles de Aura IA.</p>
+          <p className="mt-4 text-lg text-text-secondary">No se.</p>
         </div>
       </section>
     </main>

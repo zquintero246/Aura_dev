@@ -72,10 +72,8 @@ const Register = () => {
         {/* Card principal */}
         <section className="w-full flex justify-center">
           <div className="relative w-full max-w-[540px]">
-            {/* Fondo sólido y borde suave */}
             <div className="absolute inset-0 rounded-[24px] bg-[rgba(29,29,29,0.25)]" />
             <div className="relative rounded-[24px] overflow-hidden border border-white/5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)] backdrop-blur-sm">
-              {/* Header del card */}
               <div className="px-6 sm:px-8 md:px-10 pt-7 pb-6 text-center">
                 <h2 className="text-[22px] sm:text-[24px] font-bold leading-tight text-white">
                   Registro
@@ -89,7 +87,6 @@ const Register = () => {
 
               {/* Formulario */}
               <div className="px-6 sm:px-8 md:px-10 py-8">
-                {/* Email */}
                 <div className="max-w-[460px] mx-auto">
                   <label
                     htmlFor="email"
@@ -107,7 +104,7 @@ const Register = () => {
                   />
                 </div>
 
-                {/* Contraseña con icono */}
+                {/* Contraseña */}
                 <div className="max-w-[460px] mx-auto mt-7 relative">
                   <label
                     htmlFor="password"
@@ -176,12 +173,11 @@ const Register = () => {
                     onClick={async () => {
                       setIsLoading(true);
 
-                      // Simula envío del código (2 segundos)
+                      //
                       await new Promise((resolve) => setTimeout(resolve, 2000));
 
                       setIsLoading(false);
 
-                      // Redirige a /verify-code
                       navigate('/verify-code');
                     }}
                     disabled={isLoading || !email || !password}
@@ -214,7 +210,7 @@ const Register = () => {
 
               <div className="h-px bg-white/10" />
 
-              {/* Botones sociales */}
+              {/* Login diferentes */}
               <div className="px-6 sm:px-8 md:px-10 py-8">
                 <div className="max-w-[400px] mx-auto grid gap-5">
                   <button

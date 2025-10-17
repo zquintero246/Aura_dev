@@ -31,7 +31,7 @@ const VerificationCode = () => {
     showToast('Código reenviado al correo electrónico.');
   };
 
-  // 🔹 Toast (mismo estilo Aura)
+  // Toast
   const [toast, setToast] = useState<{ msg: string; show: boolean }>({ msg: '', show: false });
   const showToast = (msg: string) => {
     setToast({ msg, show: true });
@@ -44,7 +44,7 @@ const VerificationCode = () => {
         <title>Verificación de código</title>
       </Helmet>
 
-      {/* Fondo con partículas (idéntico al Register) */}
+      {/* Fondo */}
       <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#141C34] to-[#0a0a0a] -z-10 overflow-hidden display-none lg:block">
         <Particles
           particleColors={['#ffffff', '#7405B4']}
@@ -58,9 +58,9 @@ const VerificationCode = () => {
         />
       </div>
 
-      {/* Main centrado */}
+      {/* Main */}
       <main className="min-h-screen flex flex-col items-center justify-center px-4 sm:px-6 py-12">
-        {/* Logo centrado sobre el formulario */}
+        {/* Logo */}
         <header className="mb-8 flex flex-col items-center">
           <img
             src="/images/logo_debajo_aura.svg"
@@ -69,12 +69,11 @@ const VerificationCode = () => {
           />
         </header>
 
-        {/* Card principal */}
+        {/* Card */}
         <section className="w-full flex justify-center">
           <div className="relative w-full max-w-[540px]">
             <div className="absolute inset-0 rounded-[24px] bg-[rgba(29,29,29,0.25)]" />
             <div className="relative rounded-[24px] overflow-hidden border border-white/5 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.5)] backdrop-blur-sm text-center px-6 sm:px-10 py-10">
-              {/* Título */}
               <h2 className="text-[22px] sm:text-[24px] font-bold text-white">
                 Introduce el código
               </h2>
@@ -97,7 +96,7 @@ const VerificationCode = () => {
                 ))}
               </div>
 
-              {/* Botón principal */}
+              {/* Botón */}
               <div className="mt-10 flex justify-center">
                 <Button
                   onClick={handleVerify}
@@ -128,7 +127,7 @@ const VerificationCode = () => {
           </div>
         </section>
 
-        {/* Toast flotante (mismo estilo Aura) */}
+        {/* Toast flotante */}
         <div
           aria-live="polite"
           aria-atomic="true"

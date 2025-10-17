@@ -80,3 +80,20 @@
     }
   }
 }
+
+/* Scroll del feed: track/transparente, thumb #4B535B, fino */
+.scroll-slim {
+  scrollbar-width: thin;              /* Firefox */
+  scrollbar-color: #4B535B transparent;
+}
+.scroll-slim::-webkit-scrollbar {
+  width: 8px;
+}
+.scroll-slim::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-slim::-webkit-scrollbar-thumb {
+  background-color: #4B535B;
+  border-radius: 9999px;
+  border: 2px solid transparent;      /* limpia el borde */
+}

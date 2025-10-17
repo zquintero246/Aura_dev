@@ -4,7 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="64d5d59f-87fe-49b9-a415-8156c53f926c" name="Changes" comment="" />
+    <list default="true" id="64d5d59f-87fe-49b9-a415-8156c53f926c" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -26,12 +28,12 @@
     &quot;assignee&quot;: &quot;zquintero246&quot;
   }
 }</component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/zquintero246/Aura_dev.git",
-    "accountId": "33da9ec7-943b-4539-afe9-4d522fdfaef6"
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/zquintero246/Aura_dev.git&quot;,
+    &quot;accountId&quot;: &quot;33da9ec7-943b-4539-afe9-4d522fdfaef6&quot;
   }
-}]]></component>
+}</component>
   <component name="HighlightingSettingsPerFile">
     <setting file="file://$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry/CausalMultiheadAttention.py" root0="SKIP_INSPECTION" />
   </component>
@@ -60,7 +62,7 @@
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
     &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;Zabdiel&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
     &quot;last_opened_file_path&quot;: &quot;C:/Users/Zabdiel Julian/Downloads/IngenieriaSoftwareII/Niggahush_dev/NiggahushLM/test/data&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
@@ -113,6 +115,12 @@
       <workItem from="1756624038095" duration="239000" />
       <workItem from="1756863876560" duration="21000" />
       <workItem from="1757564548750" duration="453000" />
+      <workItem from="1758231770070" duration="825000" />
+      <workItem from="1758250915318" duration="31000" />
+      <workItem from="1758251137619" duration="1337000" />
+      <workItem from="1759893657531" duration="13000" />
+      <workItem from="1760172398549" duration="418000" />
+      <workItem from="1760320729964" duration="12000" />
     </task>
     <servers />
   </component>

@@ -400,21 +400,39 @@ def prepare_hf_dataset(
         return
 
     dataset_id: str
-    if dataset_name.lower() == "oscar":
+    dataset_name_lower = dataset_name.lower()
+    if dataset_name_lower == "oscar":
         dataset_id = "oscar-corpus/OSCAR-2201"
-    elif dataset_name.lower() == "wikipedia":
-        dataset_id = "wikipedia"
+        dataset_kwargs = {"trust_remote_code": False}
+    elif dataset_name_lower == "wikipedia":
+        # El dataset "wikipedia" original basado en scripts fue retirado en
+        # versiones recientes de `datasets`. El reemplazo oficial es
+        # "wikimedia/wikipedia", el cual funciona sin scripts externos.
+        dataset_id = "wikimedia/wikipedia"
+        dataset_kwargs = {"trust_remote_code": False}
     else:
         raise ValueError(
             "dataset-name debe ser 'oscar' o 'wikipedia'."
         )
 
     print(f"Descargando y tokenizando {dataset_id} ({dataset_config}, {dataset_split})…")
-    dataset = load_dataset(
-        dataset_id,
-        dataset_config,
-        split=dataset_split,
-    )
+    try:
+        dataset = load_dataset(
+            dataset_id,
+            dataset_config,
+            split=dataset_split,
+            **dataset_kwargs,
+        )
+    except RuntimeError as exc:
+        if dataset_name_lower == "wikipedia" and "no longer supported" in str(exc).lower():
+            raise RuntimeError(
+                "El dataset 'wikipedia' clásico basado en scripts ya no está "
+                "disponible en versiones recientes de `datasets`. Usa el "
+                "identificador 'wikimedia/wikipedia' (configuramos esto "
+                "automáticamente) y asegúrate de tener la versión >= 2.15 del "
+                "paquete `datasets`."
+            ) from exc
+        raise
 
     eos_id = tokenizer.eos_token_id
     tokens = tokenize_text_stream(
@@ -593,4 +611,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

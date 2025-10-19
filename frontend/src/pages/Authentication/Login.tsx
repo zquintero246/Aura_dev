@@ -18,7 +18,7 @@ const Login = () => {
     await new Promise((r) => setTimeout(r, 1200));
     setIsLoading(false);
     // navega a tu dashboard (ajusta la ruta)
-    navigate('/app');
+    navigate('/chat');
   };
 
   const handleGithubLogin = () => {};

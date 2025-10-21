@@ -54,6 +54,7 @@
     "@heroicons/react": "^2.2.0",
     "@heroui/react": "^2.8.4",
     "@tailwindcss/typography": "^0.5.16",
+    "axios": "^1.12.2",
     "class-variance-authority": "^0.7.1",
     "framer-motion": "^12.23.22",
     "gsap": "^3.13.0",

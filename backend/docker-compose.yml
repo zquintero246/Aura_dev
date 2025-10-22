@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  # ================= Laravel App =================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aura_app
+    restart: always
+    working_dir: /var/www/html
+    volumes:
+      - .:/var/www/html
+    ports:
+      - "9000:9000"
+    networks:
+      - aura_net
+
+  # ================= Nginx =================
+  nginx:
+    image: nginx:latest
+    container_name: aura_nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - .:/var/www/html
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - app
+    networks:
+      - aura_net
+
+networks:
+  aura_net:
+    driver: bridge

@@ -21,6 +21,15 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'google_id',
+        'facebook_id',
+        'github_id',
+        'gitlab_id',
+        'bitbucket_id',
+        'slack_id',
+        'twitch_id',
+        'twitter_openid_id',
+        'linkedin_openid_id'
     ];
 
     /**

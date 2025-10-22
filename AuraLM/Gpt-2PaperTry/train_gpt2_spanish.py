@@ -4,6 +4,16 @@ import os
 from pathlib import Path
 from typing import Iterable, Optional
 
+if os.name == "nt" and "TORCH_DISTRIBUTED_USE_LIBUV" not in os.environ:
+    # En Windows, algunas distribuciones de PyTorch no incluyen soporte para libuv.
+    # torchrun intenta usar libuv por defecto para el rendezvous TCP y falla con
+    # "use_libuv was requested but PyTorch was build without libuv support".
+    # Forzamos el uso del backend basado en sockets tradicionales dentro del
+    # proceso de entrenamiento. Aun así, es recomendable establecer esta
+    # variable en la shell antes de invocar torchrun para evitar el fallo
+    # durante el rendezvous inicial.
+    os.environ["TORCH_DISTRIBUTED_USE_LIBUV"] = "0"
+
 import torch
 import torch.distributed as dist
 import torch.nn as nn

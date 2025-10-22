@@ -62,7 +62,15 @@ A continuación se asume que cada laptop usa una sola GPU. Si dispones de más G
    - Puerto maestro: `12355`.
    - Número total de procesos: `WORLD_SIZE = nnodes * nproc_per_node`. Con 2 nodos y 1 GPU por nodo, `WORLD_SIZE = 2`.
 
-2. **Comandos a ejecutar (PowerShell) en cada nodo:**
+2. **Desactivar libuv para el rendezvous distribuido (requerido en Windows si PyTorch se compiló sin libuv):**
+
+   En cada nodo, antes de lanzar `torchrun`, establece la variable de entorno en la misma sesión de PowerShell:
+
+   ```powershell
+   $env:TORCH_DISTRIBUTED_USE_LIBUV = "0"
+   ```
+
+3. **Comandos a ejecutar (PowerShell) en cada nodo:**
 
    **node0 (maestro, rank 0):**
    ```powershell
@@ -84,7 +92,7 @@ A continuación se asume que cada laptop usa una sola GPU. Si dispones de más G
 
    > Nota: el script ajusta automáticamente el backend distribuido a **gloo** en Windows y permite sobreescribir `MASTER_ADDR`, `MASTER_PORT`, `RANK` y `WORLD_SIZE` mediante variables de entorno o argumentos CLI.
 
-3. **Logs esperados:**
+4. **Logs esperados:**
    - Cada proceso imprime una línea `"[Rank X] cudnn.benchmark=..."` indicando su rank y dispositivo.
    - Solo el proceso con `rank 0` muestra las pérdidas de entrenamiento y validación, así como ejemplos de texto generado.
 
@@ -110,6 +118,10 @@ A continuación se asume que cada laptop usa una sola GPU. Si dispones de más G
 
 - **`RuntimeError: Distributed package doesn't have NCCL built in`:**
   - En Windows, NCCL no está disponible. El script selecciona automáticamente el backend `gloo`, pero asegúrate de no forzar `--master-port` o `--backend nccl` manualmente.
+
+- **`RuntimeError: use_libuv was requested but PyTorch was build without libuv support`:**
+  - Establece `TORCH_DISTRIBUTED_USE_LIBUV=0` antes de ejecutar `torchrun` en ambos nodos (`$env:TORCH_DISTRIBUTED_USE_LIBUV = "0"`).
+  - Verifica que la variable esté visible en la sesión (`$env:TORCH_DISTRIBUTED_USE_LIBUV`). Si se abre una consola nueva, vuelve a definirla.
 
 - **Errores relacionados con CUDA o drivers:**
   - Actualiza los drivers NVIDIA, verifica que `nvidia-smi` muestre la GPU correctamente y que la versión de CUDA 12.1 esté instalada.

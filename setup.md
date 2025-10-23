@@ -1,133 +1,175 @@
 # Guía de configuración para entrenamiento distribuido con AuraLM
 
-Esta guía describe cómo ejecutar `train_gpt2_spanish.py` en dos laptops con Windows 11 (denominadas **node0** y **node1**) conectadas a la misma red Wi-Fi. El procedimiento cubre desde la verificación de la red hasta la ejecución del entrenamiento distribuido y la validación de la sincronización de gradientes.
+Esta guía describe cómo ejecutar `train_gpt2_spanish.py` en dos máquinas (node0 y node1) conectadas a la misma red local vía Wi-Fi. Las instrucciones asumen que se utiliza **Windows 11** con entornos de entrenamiento dentro de **WSL2 (Ubuntu 22.04)**, pero también se indican notas específicas para PowerShell cuando corresponda.
 
 ## Requisitos previos
 
-1. **Hardware**
-   - Dos laptops con Windows 11 conectadas a la misma red Wi-Fi.
-   - Cada laptop debe tener al menos una GPU NVIDIA compatible con CUDA 12.1 (si solo hay CPU el script seguirá funcionando, pero el rendimiento será menor).
-   - Al menos 20 GB de espacio libre en disco para datasets y checkpoints.
+1. **Hardware y sistema operativo**
+   - Dos laptops con Windows 11 y soporte de virtualización por hardware habilitado (BIOS/UEFI).
+   - Adaptadores Wi-Fi conectados a la misma red inalámbrica y con buena intensidad de señal.
+   - GPUs NVIDIA RTX compatibles con CUDA 12.1. Ambas máquinas deben compartir una versión similar de GPU/driver.
+   - Al menos 16 GB de RAM y 30 GB de espacio libre en disco por nodo para datasets y checkpoints.
 
-2. **Software**
-   - Python 3.11 instalado en ambas máquinas (`py --version` debe mostrar 3.11.x).
-   - Git instalado para clonar este repositorio.
-   - Drivers NVIDIA actualizados (versión 531.xx o superior compatible con CUDA 12.1).
-   - Conectividad entre ambas máquinas (sin reglas de firewall que bloqueen el puerto que se usará para el entrenamiento).
+2. **Controladores y WSL**
+   - Instalar los controladores NVIDIA Studio/Game Ready más recientes y el paquete **NVIDIA CUDA para WSL**.
+   - Habilitar WSL con `wsl --install -d Ubuntu-22.04` y reiniciar el equipo cuando sea requerido.
+   - Actualizar WSL: `wsl --update` y reiniciar los entornos (`wsl --shutdown`).
 
-3. **Código fuente**
-   - Clona el repositorio en ambas máquinas y coloca los archivos dentro de la misma ruta, por ejemplo `C:\proyectos\Aura_dev`.
+3. **Herramientas de software**
+   - Git para clonar el repositorio.
+   - Python 3.11 dentro de WSL (instalado mediante `sudo apt install python3.11 python3.11-venv python3.11-dev`).
+   - utilidades de red: `ping`, `ip`, `nc` (instalar con `sudo apt install iputils-ping netcat-openbsd`).
+
+4. **Código fuente**
+   - Clonar este repositorio en ambas máquinas dentro de WSL, por ejemplo en `/home/usuario/Aura_dev`.
 
 ## Configuración de red
 
-1. **Conectar ambas máquinas a la misma red Wi-Fi.**
-2. **Obtener la dirección IP de node0 (máquina que actuará como maestro):**
-   - Abre PowerShell y ejecuta `ipconfig`.
-   - Localiza la interfaz Wi-Fi y anota la dirección IPv4, por ejemplo `192.168.0.10`.
-3. **Verificar conectividad desde node1:**
-   - En node1 ejecuta `ping 192.168.0.10`.
-   - Si no hay respuesta, revisa la red o el firewall (habilita temporalmente el permiso de entrada para `python.exe` o el puerto que se usará).
-4. **Elegir un puerto libre para la comunicación distribuida (ej. `12355`).**
-   - Asegúrate de que el puerto esté abierto en el firewall de node0 (puedes crear una regla de entrada para TCP 12355 si es necesario).
+1. **Obtener la IP de cada nodo (dentro de WSL):**
+   ```bash
+   ip addr show wlan0
+   ```
+   - Toma nota de la dirección IPv4 (`inet 192.168.1.X/24`). node0 será el nodo maestro.
+   - Si usas WSL con Hyper-V, asegúrate de que el adaptador virtual esté en modo bridge con tu Wi-Fi. Desde Windows, crea un interruptor virtual en Hyper-V Manager y asígnalo a la interfaz inalámbrica.
 
-## Configuración de entorno
+2. **Verificar conectividad entre nodos:**
+   - En node1 (WSL) ejecuta `ping 192.168.1.10` (sustituye por la IP de node0). Debes recibir respuestas.
+   - Comprueba que el firewall de Windows permite tráfico entrante en el puerto que se usará para torchrun (por ejemplo 12355). Agrega una regla en “Firewall de Windows con seguridad avanzada” si es necesario.
 
-Realiza los siguientes pasos tanto en **node0** como en **node1**.
+3. **Probar apertura de puertos con netcat:**
+   - En node0:
+     ```bash
+     nc -l 12355
+     ```
+   - En node1:
+     ```bash
+     echo "hola" | nc 192.168.1.10 12355
+     ```
+   - node0 debe mostrar el mensaje recibido. Si falla, revisa firewall, puenteo WSL o la IP utilizada.
 
-1. **Crear y activar un entorno virtual:**
-   ```powershell
-   cd C:\proyectos\Aura_dev
-   py -3.11 -m venv .venv
-   .\.venv\Scripts\activate
+4. **Sincronizar relojes del sistema:**
+   - Verifica que ambos nodos tengan fecha/hora similares (`date`). Grandes diferencias pueden causar expiraciones en el rendezvous TCPStore.
+
+## Configuración del entorno
+
+Realiza los pasos siguientes en **node0** y **node1** dentro de WSL.
+
+1. **Actualizar paquetes y crear entorno virtual:**
+   ```bash
+   sudo apt update && sudo apt upgrade -y
+   cd ~/Aura_dev
+   python3.11 -m venv .venv
+   source .venv/bin/activate
    python -m pip install --upgrade pip
    ```
+
 2. **Instalar PyTorch 2.5.1 con CUDA 12.1:**
-   ```powershell
-   pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+   ```bash
+   pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121 \
+       --index-url https://download.pytorch.org/whl/cu121
    ```
+
 3. **Instalar dependencias del proyecto:**
-   ```powershell
+   ```bash
    pip install transformers datasets tqdm
    ```
-4. **(Opcional) Preparar el dataset previamente:**
-   - Puedes ejecutar en node0: `python AuraLM\Gpt-2PaperTry\train_gpt2_spanish.py --prepare --dataset-name wikipedia --dataset-max-tokens 500000`
-   - Cuando termine la tokenización, copia la carpeta `AuraLM\Gpt-2PaperTry\Data` a node1 para evitar descargar dos veces.
+
+4. **Verificar acceso a la GPU dentro de WSL:**
+   ```bash
+   nvidia-smi
+   python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name())"
+   ```
+
+5. **(Opcional) Preparar el dataset en node0 y compartirlo:**
+   ```bash
+   python AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py --prepare --dataset-name wikipedia \
+       --dataset-max-tokens 500000
+   ```
+   - Copia la carpeta `AuraLM/Gpt-2PaperTry/Data` a node1 para evitar descargas duplicadas (via `rsync` o `scp`).
+
+6. **Variables de entorno recomendadas:**
+   - En Windows nativo (no WSL) establece `TORCH_DISTRIBUTED_USE_LIBUV=0` antes de `torchrun`. En WSL no es necesario, pero puedes exportarlo para mantener consistencia:
+     ```bash
+     export TORCH_DISTRIBUTED_USE_LIBUV=0
+     ```
+   - Activa logs detallados de PyTorch cuando depures: `export TORCH_DISTRIBUTED_DEBUG=DETAIL`.
 
 ## Ejecución del entrenamiento distribuido
 
-A continuación se asume que cada laptop usa una sola GPU. Si dispones de más GPUs por nodo, ajusta el valor de `--nproc_per_node` con la cantidad de GPUs de ese nodo.
+Supongamos 2 nodos con 1 GPU cada uno. Ajusta `--nproc_per_node` al número de GPUs disponibles en cada máquina. El puerto maestro será `12355` y la IP del maestro (node0) `192.168.1.10`.
 
-1. **Definir variables comunes:**
-   - Dirección IP de node0: `192.168.0.10` (ejemplo).
-   - Puerto maestro: `12355`.
-   - Número total de procesos: `WORLD_SIZE = nnodes * nproc_per_node`. Con 2 nodos y 1 GPU por nodo, `WORLD_SIZE = 2`.
+### node0 (rank 0)
+```bash
+cd ~/Aura_dev
+source .venv/bin/activate
+export MASTER_ADDR=192.168.1.10
+export MASTER_PORT=12355
+export WORLD_SIZE=2  # nnodes * nproc_per_node
+export RANK=0
+export LOCAL_RANK=0
+torchrun --nnodes=2 --nproc_per_node=1 --node_rank=0 \
+    --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \
+    AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py --distributed --batch-size 8 --seq-len 128
+```
 
-2. **Desactivar libuv para el rendezvous distribuido (requerido en Windows si PyTorch se compiló sin libuv):**
+### node1 (rank 1)
+```bash
+cd ~/Aura_dev
+source .venv/bin/activate
+export MASTER_ADDR=192.168.1.10
+export MASTER_PORT=12355
+export WORLD_SIZE=2
+export RANK=1
+export LOCAL_RANK=0
+torchrun --nnodes=2 --nproc_per_node=1 --node_rank=1 \
+    --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \
+    AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py --distributed --batch-size 8 --seq-len 128
+```
 
-   En cada nodo, antes de lanzar `torchrun`, establece la variable de entorno en la misma sesión de PowerShell:
+Notas:
+- Para múltiples GPUs por nodo, aumenta `--nproc_per_node` y deja que `torchrun` gestione `LOCAL_RANK`. El script detectará el índice y sincronizará gradientes automáticamente mediante DDP.
+- El backend `nccl` se usa de forma predeterminada cuando hay GPU. Si NCCL falla (por ejemplo, builds sin soporte completo en Windows), el código cae automáticamente a `gloo` y lo indicará en los logs.
+- El script imprime por proceso: rank global, local rank, world size, backend efectivo y el nombre de la GPU. También sincroniza explícitamente antes y después del entrenamiento.
 
-   ```powershell
-   $env:TORCH_DISTRIBUTED_USE_LIBUV = "0"
+## Verificación de sincronización
+
+1. **Prueba rápida sin entrenar modelo:**
+   ```bash
+   torchrun --nnodes=2 --nproc_per_node=1 --node_rank=0 --master_addr=192.168.1.10 \
+       --master_port=12355 AuraLM/Gpt-2PaperTry/test_ddp.py
    ```
+   Ejecuta el mismo comando cambiando `--node_rank=1` en node1. Todos los procesos deben reportar el mismo resultado de `all_reduce`.
 
-3. **Comandos a ejecutar (PowerShell) en cada nodo:**
+2. **Durante el entrenamiento:**
+   - Observa que los logs muestran "Sincronización inicial" y "Todos los procesos completaron el entrenamiento" para cada rank.
+   - Solo rank 0 reporta pérdidas y genera muestras de texto, mientras que los demás procesos trabajan en silencio tras imprimir sus estados iniciales.
 
-   **node0 (maestro, rank 0):**
-   ```powershell
-   cd C:\proyectos\Aura_dev
-   .\.venv\Scripts\activate
-   torchrun --nnodes=2 --nproc_per_node=1 --node_rank=0 `
-       --master_addr=192.168.0.10 --master_port=12355 `
-       AuraLM\Gpt-2PaperTry\train_gpt2_spanish.py --distributed --batch-size 8 --seq-len 128
-   ```
+3. **Validar checkpoints compartidos:**
+   - El archivo `AuraLM/Gpt-2PaperTry/gpt2_spanish.pth` debe generarse únicamente en node0 al finalizar.
 
-   **node1 (rank 1):**
-   ```powershell
-   cd C:\proyectos\Aura_dev
-   .\.venv\Scripts\activate
-   torchrun --nnodes=2 --nproc_per_node=1 --node_rank=1 `
-       --master_addr=192.168.0.10 --master_port=12355 `
-       AuraLM\Gpt-2PaperTry\train_gpt2_spanish.py --distributed --batch-size 8 --seq-len 128
-   ```
+## Troubleshooting
 
-   > Nota: el script ajusta automáticamente el backend distribuido a **gloo** en Windows y permite sobreescribir `MASTER_ADDR`, `MASTER_PORT`, `RANK` y `WORLD_SIZE` mediante variables de entorno o argumentos CLI.
+- **Timeout en TCPStore o torchrun se queda esperando:**
+  - Comprueba conectividad (`ping` y `nc`).
+  - Verifica que `MASTER_ADDR` sea accesible desde ambos WSL. Si usas WSL con NAT, habilita el modo bridge en Hyper-V.
+  - Asegúrate de que el firewall de Windows permita el puerto `MASTER_PORT` para conexiones entrantes.
 
-4. **Logs esperados:**
-   - Cada proceso imprime una línea `"[Rank X] cudnn.benchmark=..."` indicando su rank y dispositivo.
-   - Solo el proceso con `rank 0` muestra las pérdidas de entrenamiento y validación, así como ejemplos de texto generado.
+- **`RuntimeError: use_libuv was requested but PyTorch was built without libuv support`:**
+  - Establece `TORCH_DISTRIBUTED_USE_LIBUV=0` antes de ejecutar `torchrun` (tanto en Windows como en WSL si se reutilizan shells heredadas).
 
-## Verificación de la sincronización de gradientes
+- **`RuntimeError: Distributed package doesn't have NCCL built in` o errores NCCL en Windows:**
+  - Los builds oficiales de PyTorch para Windows no incluyen NCCL. El script detectará el fallo y migrará a `gloo`. Comprueba que los logs indiquen `fallback=gloo`.
+  - Si usas WSL y aún falla NCCL, revisa que `nvidia-smi` funcione y que el kernel WSL esté actualizado (`wsl --update`).
 
-1. Ejecuta un par de épocas y revisa que no haya divergencias de pérdida (por ejemplo, valores `NaN`).
-2. Observa que los pasos de entrenamiento avanzan sin errores y que el `Loss entrenamiento` disminuye progresivamente en la consola de node0.
-3. Para un chequeo más detallado puedes activar el modo de depuración de PyTorch antes de lanzar `torchrun`:
-   ```powershell
-   $env:TORCH_DISTRIBUTED_DEBUG = "DETAIL"
-   ```
-   Esto generará registros adicionales que confirman la sincronización de los gradientes y los all-reduce entre procesos.
-4. Al finalizar, verifica que el archivo `gpt2_spanish.pth` se genere en `AuraLM\Gpt-2PaperTry\` únicamente en node0 (el proceso maestro es el encargado de guardarlo).
+- **Desincronización de pesos (loss divergente entre nodos):**
+  - Verifica que `DistributedSampler` esté activo (los logs lo confirman) y que no haya reinicios parciales de nodos.
+  - Si se detecta un NaN, el script reinicia los pesos y los retransmite a todos los procesos.
 
-## Troubleshooting común
+- **Rutas o versiones distintas del repositorio:**
+  - Asegúrate de que ambos nodos ejecuten el mismo commit (`git rev-parse HEAD`) y tengan las mismas dependencias (`pip freeze`).
 
-- **Ping fallido o tiempo de espera agotado:**
-  - Asegúrate de que ambas laptops estén en la misma subred Wi-Fi.
-  - Desactiva temporalmente el firewall o agrega una excepción para `python.exe` y el puerto `MASTER_PORT` seleccionado.
+- **Debug avanzado:**
+  - Establece `export NCCL_DEBUG=INFO` y `export TORCH_DISTRIBUTED_DEBUG=DETAIL` para obtener trazas detalladas.
+  - Usa `sudo iptables -L -n` dentro de WSL para confirmar que no existan reglas bloqueando tráfico.
 
-- **Error "Address already in use" al iniciar torchrun:**
-  - Cambia el valor de `--master_port` por uno libre (ej. 12360) y vuelve a lanzar ambos comandos.
-
-- **`RuntimeError: Distributed package doesn't have NCCL built in`:**
-  - En Windows, NCCL no está disponible. El script selecciona automáticamente el backend `gloo`, pero asegúrate de no forzar `--master-port` o `--backend nccl` manualmente.
-
-- **`RuntimeError: use_libuv was requested but PyTorch was build without libuv support`:**
-  - Establece `TORCH_DISTRIBUTED_USE_LIBUV=0` antes de ejecutar `torchrun` en ambos nodos (`$env:TORCH_DISTRIBUTED_USE_LIBUV = "0"`).
-  - Verifica que la variable esté visible en la sesión (`$env:TORCH_DISTRIBUTED_USE_LIBUV`). Si se abre una consola nueva, vuelve a definirla.
-
-- **Errores relacionados con CUDA o drivers:**
-  - Actualiza los drivers NVIDIA, verifica que `nvidia-smi` muestre la GPU correctamente y que la versión de CUDA 12.1 esté instalada.
-  - Comprueba que el entorno virtual esté usando la versión correcta de PyTorch (`python -c "import torch; print(torch.__version__)"`).
-
-- **Diferencias de versión entre nodos:**
-  - Usa el mismo commit del repositorio y las mismas versiones de dependencias en ambas máquinas. Puedes ejecutar `pip freeze > requirements.txt` en node0 y replicarlo en node1.
-
-Siguiendo estos pasos deberías poder entrenar el modelo en paralelo aprovechando las GPUs disponibles en tus dos laptops.
+Siguiendo estos pasos deberías poder entrenar en paralelo aprovechando las GPUs de ambas laptops mediante PyTorch DistributedDataParallel.

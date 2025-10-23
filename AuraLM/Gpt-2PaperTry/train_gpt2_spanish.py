@@ -1,6 +1,7 @@
 import argparse
 import math
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -152,47 +153,63 @@ class SpanishCorpus(Dataset):
         return x, y
 
 
+@dataclass
+class DistributedState:
+    """Metadatos sobre el contexto distribuido activo."""
+
+    is_distributed: bool
+    rank: int
+    world_size: int
+    local_rank: int
+    device: torch.device
+    backend: Optional[str]
+
+
 def unwrap_distributed_model(model: nn.Module) -> nn.Module:
     """Devuelve el módulo real, incluso si está envuelto por DDP."""
 
     return model.module if isinstance(model, DistributedDataParallel) else model
 
 
-def setup_distributed(args):
-    """Inicializa torch.distributed y devuelve metadatos del proceso actual."""
+def setup(args: argparse.Namespace) -> DistributedState:
+    """Configura el contexto distribuido (o single-process) y devuelve su estado."""
 
     env_world_size = int(os.environ.get("WORLD_SIZE", "1"))
     cli_world_size = args.world_size if args.world_size is not None else env_world_size
     should_distribute = (
         args.distributed
         or cli_world_size > 1
-        or (args.rank is not None)
         or env_world_size > 1
+        or (args.rank is not None and args.rank >= 0)
     )
 
     if not should_distribute:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        return {
-            "is_distributed": False,
-            "rank": 0,
-            "world_size": 1,
-            "local_rank": 0,
-            "device": device,
-            "backend": None,
-        }
+        print(
+            "[Rank 0] Ejecutando en modo single-process. "
+            f"Dispositivo: {device}. WORLD_SIZE=1",
+            flush=True,
+        )
+        return DistributedState(
+            is_distributed=False,
+            rank=0,
+            world_size=1,
+            local_rank=0,
+            device=device,
+            backend=None,
+        )
 
-    # Permite configurar MASTER_ADDR/PORT desde CLI o entorno.
     master_addr = args.master_addr or os.environ.get("MASTER_ADDR", "127.0.0.1")
     master_port = args.master_port or os.environ.get("MASTER_PORT", "29500")
     os.environ["MASTER_ADDR"] = str(master_addr)
     os.environ["MASTER_PORT"] = str(master_port)
 
-    world_size = cli_world_size if cli_world_size is not None else 1
+    world_size = cli_world_size if cli_world_size is not None else env_world_size
     if world_size < 1:
         raise ValueError("WORLD_SIZE debe ser mayor o igual a 1")
     os.environ["WORLD_SIZE"] = str(world_size)
 
-    rank = args.rank if args.rank is not None else int(os.environ.get("RANK", "0"))
+    rank = args.rank if args.rank is not None and args.rank >= 0 else int(os.environ.get("RANK", "0"))
     if rank < 0 or rank >= world_size:
         raise ValueError(f"RANK debe estar en el rango [0, {world_size - 1}]")
     os.environ["RANK"] = str(rank)
@@ -204,31 +221,77 @@ def setup_distributed(args):
     )
     os.environ["LOCAL_RANK"] = str(local_rank)
 
-    # Windows no soporta NCCL; en ese caso usamos gloo aunque haya GPU.
-    backend = "nccl" if torch.cuda.is_available() and os.name != "nt" else "gloo"
-    dist.init_process_group(backend=backend, init_method="env://", rank=rank, world_size=world_size)
+    preferred_backend = "nccl" if torch.cuda.is_available() else "gloo"
+    backend = preferred_backend
+    init_error: Optional[RuntimeError] = None
+    try:
+        dist.init_process_group(
+            backend=backend,
+            init_method="env://",
+            rank=rank,
+            world_size=world_size,
+        )
+    except RuntimeError as exc:
+        init_error = exc
+        if preferred_backend == "nccl":
+            backend = "gloo"
+            print(
+                f"[Rank {rank}] Falló la inicialización NCCL ({exc}). "
+                "Reintentando con backend 'gloo'.",
+                flush=True,
+            )
+            dist.init_process_group(
+                backend=backend,
+                init_method="env://",
+                rank=rank,
+                world_size=world_size,
+            )
+        else:
+            raise
 
     if torch.cuda.is_available():
-        torch.cuda.set_device(local_rank)
-        device = torch.device("cuda", local_rank)
+        device_count = torch.cuda.device_count()
+        device_index = local_rank if 0 <= local_rank < device_count else 0
+        if local_rank >= device_count:
+            print(
+                f"[Rank {rank}] Advertencia: LOCAL_RANK {local_rank} excede las GPUs disponibles "
+                f"({device_count}). Se usará la GPU 0.",
+                flush=True,
+            )
+        torch.cuda.set_device(device_index)
+        device = torch.device("cuda", device_index)
     else:
         device = torch.device("cpu")
 
-    print(
-        f"[Rank {rank}] Proceso distribuido inicializado con backend '{backend}' en {device}."
+    debug_msg = (
+        f"[Rank {rank}] Proceso inicializado | backend={backend} | "
+        f"world_size={world_size} | local_rank={local_rank} | "
+        f"MASTER={master_addr}:{master_port}"
+    )
+    if init_error is not None and backend == "gloo":
+        debug_msg += " | fallback=gloo"
+    print(debug_msg, flush=True)
+
+    if device.type == "cuda":
+        gpu_name = torch.cuda.get_device_name(device)
+        print(
+            f"[Rank {rank}] Usando GPU '{gpu_name}' en el índice {device.index}.",
+            flush=True,
+        )
+    else:
+        print(f"[Rank {rank}] Usando CPU.", flush=True)
+
+    return DistributedState(
+        is_distributed=True,
+        rank=rank,
+        world_size=world_size,
+        local_rank=local_rank,
+        device=device,
+        backend=backend,
     )
 
-    return {
-        "is_distributed": True,
-        "rank": rank,
-        "world_size": world_size,
-        "local_rank": local_rank,
-        "device": device,
-        "backend": backend,
-    }
 
-
-def cleanup_distributed() -> None:
+def cleanup() -> None:
     """Libera los recursos del proceso distribuido si están inicializados."""
 
     if dist.is_available() and dist.is_initialized():
@@ -339,6 +402,27 @@ def train(
 ) -> nn.Module:
     use_amp = device.type == "cuda"
     is_main_process = rank == 0
+    dataset_size = len(train_loader.dataset)
+    if distributed:
+        print(
+            f"[Rank {rank}] Preparando entrenamiento distribuido con {dataset_size} muestras locales.",
+            flush=True,
+        )
+        print(
+            f"[Rank {rank}] Sincronizando procesos antes de iniciar el entrenamiento…",
+            flush=True,
+        )
+        dist.barrier()
+        print(
+            f"[Rank {rank}] Sincronización inicial completada. Comenzando epochs.",
+            flush=True,
+        )
+    else:
+        print(
+            f"[Rank {rank}] Entrenamiento en modo single-process con {dataset_size} muestras.",
+            flush=True,
+        )
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     total_steps = epochs * max(1, len(train_loader))
     warmup_steps = max(1, int(total_steps * warmup_ratio))
@@ -473,6 +557,21 @@ def train(
             except Exception as exc:  # pragma: no cover - logging únicamente
                 print("Error al generar texto de ejemplo:", exc)
 
+    if distributed:
+        print(
+            f"[Rank {rank}] Esperando sincronización final tras completar los epochs…",
+            flush=True,
+        )
+        dist.barrier()
+        print(
+            f"[Rank {rank}] Todos los procesos completaron el entrenamiento.",
+            flush=True,
+        )
+    else:
+        print("[Rank 0] Entrenamiento single-process completado.", flush=True)
+
+    # Devolvemos el modelo base (sin el envoltorio DDP) para facilitar guardados o
+    # evaluaciones posteriores en un único proceso.
     return unwrap_distributed_model(model)
 
 
@@ -737,11 +836,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    dist_state = setup_distributed(args)
-    rank = dist_state["rank"]
-    world_size = dist_state["world_size"]
-    distributed = dist_state["is_distributed"]
-    device = dist_state["device"]
+    dist_state = setup(args)
+    rank = dist_state.rank
+    world_size = dist_state.world_size
+    distributed = dist_state.is_distributed
+    device = dist_state.device
     is_main_process = rank == 0
 
     base_dir = Path(__file__).resolve().parent
@@ -796,6 +895,10 @@ def main() -> None:
     train_sampler: Optional[DistributedSampler]
     val_sampler: Optional[DistributedSampler]
     if distributed:
+        # El DistributedSampler divide el dataset entre los procesos globales para que
+        # cada uno procese un fragmento distinto sin solaparse con el resto. torchrun
+        # proporciona rank/world_size, lo que permite que el sampler calcule la porción
+        # correspondiente en cada nodo.
         train_sampler = DistributedSampler(
             train_dataset,
             num_replicas=world_size,
@@ -829,23 +932,35 @@ def main() -> None:
         drop_last=False,
     )
 
-    if args.cudnn_benchmark is None:
-        args.cudnn_benchmark = device.type == "cuda"
-    torch.backends.cudnn.benchmark = bool(args.cudnn_benchmark and device.type == "cuda")
+    if device.type == "cuda":
+        cudnn_flag = True if args.cudnn_benchmark is None else bool(args.cudnn_benchmark)
+        torch.backends.cudnn.benchmark = cudnn_flag
+    else:
+        torch.backends.cudnn.benchmark = False
     print(
-        f"[Rank {rank}] cudnn.benchmark={'ON' if torch.backends.cudnn.benchmark else 'OFF'}"
+        f"[Rank {rank}] cudnn.benchmark={'ON' if torch.backends.cudnn.benchmark else 'OFF'}",
+        flush=True,
     )
 
     if device.type == "cuda":
         gpu_name = torch.cuda.get_device_name(device)
-        print(f"[Rank {rank}] usando GPU {gpu_name} (dispositivo {device})")
+        print(
+            f"[Rank {rank}] usando GPU {gpu_name} (dispositivo {device})",
+            flush=True,
+        )
     else:
-        print(f"[Rank {rank}] usando CPU")
+        print(f"[Rank {rank}] usando CPU", flush=True)
 
     model = GPT2(config).to(device)
 
     if distributed:
-        # Envuelve el modelo en DistributedDataParallel para sincronizar gradientes entre nodos.
+        # En modo distribuido cada proceso conserva únicamente su porción del modelo en la GPU
+        # asociada (local_rank). Al envolver el modelo con DDP, PyTorch se encarga de
+        # sincronizar automáticamente los gradientes mediante operaciones all-reduce al final
+        # de cada backward(). Esto garantiza que todos los nodos/núcleos vean el mismo estado de
+        # entrenamiento sin que tengamos que escribir llamadas manuales a dist.all_reduce.
+        # Cuando el script se ejecuta en modo single-GPU o CPU, se omite este envoltorio y el
+        # flujo permanece idéntico al entrenamiento tradicional.
         model = DistributedDataParallel(
             model,
             device_ids=[device.index] if device.type == "cuda" else None,
@@ -876,21 +991,23 @@ def main() -> None:
     if is_main_process:
         model_path = base_dir / "gpt2_spanish.pth"
         torch.save(trained_model.state_dict(), model_path)
-        print(f"Modelo guardado en {model_path}")
+        print(f"Modelo guardado en {model_path}", flush=True)
 
 
 if __name__ == "__main__":
-    # Ejemplo de lanzamiento distribuido con torchrun (2 nodos, 2 GPU por nodo):
-    # Nodo 0:
-    # torchrun --nnodes=2 --nproc_per_node=2 --node_rank=0 \
-    #     --master_addr=192.168.0.10 --master_port=12355 \
-    #     train_gpt2_spanish.py --distributed --batch-size=8
-    # Nodo 1:
-    # torchrun --nnodes=2 --nproc_per_node=2 --node_rank=1 \
-    #     --master_addr=192.168.0.10 --master_port=12355 \
-    #     train_gpt2_spanish.py --distributed --batch-size=8
+    # Ejemplo (WSL) de lanzamiento distribuido con torchrun para 2 nodos y 1 GPU por nodo:
+    # node0:
+    #   MASTER_ADDR=192.168.1.10 MASTER_PORT=12355 WORLD_SIZE=2 RANK=0 LOCAL_RANK=0 \
+    #   torchrun --nnodes=2 --nproc_per_node=1 --node_rank=0 \
+    #       --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \
+    #       train_gpt2_spanish.py --distributed --batch-size=8 --seq-len=128
+    # node1:
+    #   MASTER_ADDR=192.168.1.10 MASTER_PORT=12355 WORLD_SIZE=2 RANK=1 LOCAL_RANK=0 \
+    #   torchrun --nnodes=2 --nproc_per_node=1 --node_rank=1 \
+    #       --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \
+    #       train_gpt2_spanish.py --distributed --batch-size=8 --seq-len=128
     try:
         main()
     finally:
-        cleanup_distributed()
+        cleanup()
 

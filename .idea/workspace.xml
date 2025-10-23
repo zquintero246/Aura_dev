@@ -6,8 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="64d5d59f-87fe-49b9-a415-8156c53f926c" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/AuraLM/Gpt-2PaperTry/DOCUMENTACION_TRANSFORMER.md" beforeDir="false" afterPath="$PROJECT_DIR$/DOCUMENTACION_TRANSFORMER.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/AuraLM/Gpt-2PaperTry/Data/PreprocessingData.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py" beforeDir="false" afterPath="$PROJECT_DIR$/AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -139,6 +138,11 @@
       <workItem from="1760320729964" duration="12000" />
       <workItem from="1760649743373" duration="4385000" />
       <workItem from="1760729976116" duration="2123000" />
+      <workItem from="1761175454170" duration="102000" />
+      <workItem from="1761175601884" duration="1518000" />
+      <workItem from="1761180846346" duration="1196000" />
+      <workItem from="1761182491749" duration="741000" />
+      <workItem from="1761183867479" duration="5374000" />
     </task>
     <servers />
   </component>

@@ -578,7 +578,7 @@ def train(
 def load_dataset(tensor_path: Path) -> torch.Tensor:
     if not tensor_path.exists():
         raise FileNotFoundError(f"No se encontró el archivo: {tensor_path}")
-    tensor = torch.load(tensor_path)
+    tensor = torch.load(tensor_path, map_location='cpu', mmap=True)
     if not isinstance(tensor, torch.Tensor):
         raise ValueError(f"El archivo {tensor_path} no contiene un tensor de PyTorch")
     return tensor.long()

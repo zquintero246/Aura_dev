@@ -7,6 +7,7 @@ from typing import Iterable, Optional
 
 import psutil
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.cuda.amp import GradScaler, autocast
@@ -365,6 +366,10 @@ def train(
         total_loss = 0.0
         optimizer.zero_grad(set_to_none=True)
 
+        if distributed and train_sampler is not None:
+            # Cada proceso baraja un subconjunto distinto del dataset.
+            train_sampler.set_epoch(epoch)
+
         progress = tqdm(
             train_loader,
             desc=f"Epoch {epoch}/{epochs}",
@@ -434,7 +439,13 @@ def train(
             summary += f" | Loss validación: {val_loss:.4f}"
         print(summary, flush=True)
 
-        if checkpoint_freq > 0 and epoch % checkpoint_freq == 0:
+        if is_main_process:
+            print(
+                f"Epoch {epoch}/{epochs} | Loss entrenamiento: {avg_train_loss:.4f} | "
+                f"Loss validación: {val_loss:.4f}"
+            )
+
+        if is_main_process and checkpoint_freq > 0 and epoch % checkpoint_freq == 0:
             save_checkpoint(checkpoint_dir, epoch, model, optimizer, scheduler, scaler)
 
         if sample_prompt:
@@ -468,7 +479,7 @@ def train(
 def load_dataset(tensor_path: Path) -> torch.Tensor:
     if not tensor_path.exists():
         raise FileNotFoundError(f"No se encontró el archivo: {tensor_path}")
-    tensor = torch.load(tensor_path)
+    tensor = torch.load(tensor_path, map_location='cpu', mmap=True)
     if not isinstance(tensor, torch.Tensor):
         raise ValueError(f"El archivo {tensor_path} no contiene un tensor de PyTorch")
     return tensor.long()
@@ -777,18 +788,21 @@ def main() -> None:
         dataset_split = "train[:0.5%]" if args.dataset_name == "oscar" else "train[:1%]"
 
     if args.prepare or args.force_download or not (dataset_dir / "train_ids.pt").exists():
-        prepare_hf_dataset(
-            dataset_dir,
-            tokenizer,
-            seq_len=args.seq_len,
-            val_ratio=args.val_ratio,
-            dataset_name=args.dataset_name,
-            dataset_config=dataset_config,
-            dataset_split=dataset_split,
-            max_samples=args.dataset_max_samples,
-            max_tokens=args.dataset_max_tokens,
-            force=args.force_download,
-        )
+        if is_main_process:
+            prepare_hf_dataset(
+                dataset_dir,
+                tokenizer,
+                seq_len=args.seq_len,
+                val_ratio=args.val_ratio,
+                dataset_name=args.dataset_name,
+                dataset_config=dataset_config,
+                dataset_split=dataset_split,
+                max_samples=args.dataset_max_samples,
+                max_tokens=args.dataset_max_tokens,
+                force=args.force_download,
+            )
+        if distributed:
+            dist.barrier()
 
     train_ids = load_dataset(dataset_dir / "train_ids.pt")
     val_ids = load_dataset(dataset_dir / "val_ids.pt")
@@ -842,6 +856,31 @@ def main() -> None:
     }
     if num_workers > 0:
         loader_kwargs["prefetch_factor"] = 2
+
+    train_sampler: Optional[DistributedSampler]
+    val_sampler: Optional[DistributedSampler]
+    if distributed:
+        # El DistributedSampler divide el dataset entre los procesos globales para que
+        # cada uno procese un fragmento distinto sin solaparse con el resto. torchrun
+        # proporciona rank/world_size, lo que permite que el sampler calcule la porción
+        # correspondiente en cada nodo.
+        train_sampler = DistributedSampler(
+            train_dataset,
+            num_replicas=world_size,
+            rank=rank,
+            shuffle=True,
+            drop_last=False,
+        )
+        val_sampler = DistributedSampler(
+            val_dataset,
+            num_replicas=world_size,
+            rank=rank,
+            shuffle=False,
+            drop_last=False,
+        )
+    else:
+        train_sampler = None
+        val_sampler = None
 
     train_loader = DataLoader(
         train_dataset,

@@ -1,15 +1,18 @@
 import argparse
 import math
+import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
+import psutil
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.cuda.amp import GradScaler, autocast
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Sampler
 from tqdm.auto import tqdm
-from transformers import GPT2Tokenizer, get_linear_schedule_with_warmup
+from transformers import AutoModelForCausalLM, GPT2Tokenizer, get_linear_schedule_with_warmup
 
 
 class Config:
@@ -138,17 +141,109 @@ class SpanishCorpus(Dataset):
         return x, y
 
 
+def log_memory_usage(device: torch.device, prefix: str = "") -> None:
+    """Imprime el uso de VRAM (si hay GPU) y RAM en el proceso."""
+
+    ram = psutil.virtual_memory()
+    ram_msg = (
+        f"RAM usada: {ram.used / (1024 ** 3):.2f} GB / "
+        f"{ram.total / (1024 ** 3):.2f} GB"
+    )
+    if device.type == "cuda":
+        allocated = torch.cuda.memory_allocated(device) / (1024 ** 2)
+        total = torch.cuda.get_device_properties(device).total_memory / (1024 ** 2)
+        vram_msg = f"VRAM usada: {allocated:.1f} MB / {total:.1f} MB"
+        print(f"{prefix}{vram_msg} | {ram_msg}", flush=True)
+    else:
+        print(f"{prefix}{ram_msg}", flush=True)
+
+
+@dataclass
+class DistributedState:
+    """Mantiene metadatos mínimos del entorno de entrenamiento actual."""
+
+    is_distributed: bool = False
+    rank: int = 0
+    world_size: int = 1
+    local_rank: int = 0
+    device: torch.device = torch.device("cpu")
+    backend: Optional[str] = None
+
+
+def unwrap_distributed_model(model: nn.Module) -> nn.Module:
+    """En modo mono-GPU no existe un envoltorio adicional, se devuelve tal cual."""
+
+    return model
+
+
+def seq_len_from_model(model: nn.Module) -> int:
+    """Obtiene la longitud máxima de contexto soportada por el modelo actual."""
+
+    if hasattr(model, "config") and getattr(model.config, "n_positions", None):
+        return int(model.config.n_positions)
+    if hasattr(model, "pos_embed"):
+        return int(model.pos_embed.num_embeddings)
+    return 128
+
+
+def setup(args: argparse.Namespace) -> DistributedState:
+    """Inicializa un entorno de entrenamiento local mono-proceso."""
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if device.type == "cuda":
+        # Se fuerza el uso del primer dispositivo disponible para evitar
+        # inicializaciones accidentales sobre CPU cuando sí hay GPU.
+        torch.cuda.set_device(0)
+        gpu_name = torch.cuda.get_device_name(device)
+        print(f"[Local] Entrenamiento en GPU: {gpu_name} ({device})", flush=True)
+    else:
+        print("[Local] Entrenamiento en CPU (no se detectó GPU CUDA).", flush=True)
+
+    return DistributedState(
+        is_distributed=False,
+        rank=0,
+        world_size=1,
+        local_rank=0,
+        device=device,
+        backend=None,
+    )
+
+
+def cleanup() -> None:
+    """No se requiere limpieza adicional en modo mono-proceso."""
+
+    return None
+
+
 def sample(
-    model: GPT2,
+    model: nn.Module,
     device: torch.device,
     tokenizer: GPT2Tokenizer,
     prompt: str,
     length: int = 50,
     temperature: float = 1.0,
     seq_len: int = 128,
+    using_hf_model: bool = False,
 ) -> str:
     model.eval()
-    tokens = tokenizer.encode(prompt, return_tensors="pt").to(device)
+    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
+
+    if using_hf_model and hasattr(model, "generate"):
+        max_context = min(seq_len, getattr(model.config, "n_positions", seq_len))
+        total_max = min(input_ids.size(1) + length, max_context)
+        total_max = max(total_max, input_ids.size(1) + 1)
+        with torch.no_grad():
+            generated = model.generate(
+                input_ids,
+                max_length=total_max,
+                temperature=max(temperature, 1e-6),
+                do_sample=True,
+                top_p=0.95,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+        return tokenizer.decode(generated[0], skip_special_tokens=True)
+
+    tokens = input_ids
     for _ in range(length):
         tokens_ = tokens[:, -seq_len:]
         with torch.no_grad():
@@ -166,41 +261,50 @@ def reset_parameters(module: nn.Module) -> None:
 
 
 def evaluate(
-    model: GPT2,
+    model: nn.Module,
     loader: DataLoader,
     device: torch.device,
     use_amp: bool,
+    using_hf_model: bool,
 ) -> float:
     model.eval()
     total_loss = 0.0
-    progress = tqdm(loader, desc="Validación", leave=False)
+    total_steps = 0
+    progress = tqdm(loader, desc="Validación", leave=False, disable=False)
     with torch.no_grad():
         for x, y in progress:
-            x = x.to(device)
-            y = y.to(device)
+            x = x.to(device, non_blocking=True)
+            y = y.to(device, non_blocking=True)
             with autocast(enabled=use_amp):
-                scores = model(x)
-                loss = F.cross_entropy(
-                    scores.view(-1, scores.size(-1)), y.view(-1)
-                )
+                if using_hf_model:
+                    outputs = model(input_ids=x, labels=y)
+                    loss = outputs.loss
+                else:
+                    scores = model(x)
+                    loss = F.cross_entropy(
+                        scores.view(-1, scores.size(-1)), y.view(-1)
+                    )
             total_loss += loss.item()
+            total_steps += 1
             progress.set_postfix(loss=loss.item())
-    return total_loss / max(1, len(loader))
+
+    return total_loss / max(1, total_steps)
 
 
 def save_checkpoint(
     checkpoint_dir: Path,
     epoch: int,
-    model: GPT2,
+    model: nn.Module,
     optimizer: torch.optim.Optimizer,
     scheduler,
     scaler: GradScaler,
 ) -> None:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_path = checkpoint_dir / f"epoch_{epoch:03d}.pth"
+    model_to_save = unwrap_distributed_model(model)
     state = {
         "epoch": epoch,
-        "model_state_dict": model.state_dict(),
+        "model_state_dict": model_to_save.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "scheduler_state_dict": scheduler.state_dict(),
     }
@@ -210,11 +314,15 @@ def save_checkpoint(
 
 
 def train(
-    model: GPT2,
+    model: nn.Module,
     train_loader: DataLoader,
     val_loader: DataLoader,
     tokenizer: GPT2Tokenizer,
     device: torch.device,
+    rank: int,
+    distributed: bool,
+    train_sampler: Optional[Sampler],
+    val_sampler: Optional[Sampler],
     epochs: int = 5,
     lr: float = 3e-4,
     weight_decay: float = 0.01,
@@ -223,98 +331,138 @@ def train(
     checkpoint_freq: int = 1,
     sample_prompt: str = "Hola, ¿cómo",
     sample_length: int = 50,
-) -> GPT2:
+    gradient_accumulation_steps: int = 4,
+    max_grad_norm: float = 1.0,
+    log_interval: int = 100,
+    memory_report_interval: int = 100,
+    eval_frequency: int = 1,
+    using_hf_model: bool = False,
+) -> nn.Module:
+    del rank, distributed, train_sampler, val_sampler  # Compatibilidad de firma.
+
     use_amp = device.type == "cuda"
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    total_steps = epochs * max(1, len(train_loader))
-    warmup_steps = max(1, int(total_steps * warmup_ratio))
+    dataset_size = len(train_loader.dataset)
+    print(
+        f"[Local] Entrenando con {dataset_size} muestras totales en modo mono-GPU.",
+        flush=True,
+    )
+
+    gradient_accumulation_steps = max(1, gradient_accumulation_steps)
+    updates_per_epoch = math.ceil(len(train_loader) / gradient_accumulation_steps)
+    total_updates = max(1, epochs * updates_per_epoch)
+
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.95)
+    )
+    warmup_steps = max(1, int(total_updates * warmup_ratio))
     scheduler = get_linear_schedule_with_warmup(
-        optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_steps
+        optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_updates
     )
     scaler = GradScaler(enabled=use_amp)
 
-    epoch = 0
-    while epoch < epochs:
-        epoch += 1
+    for epoch in range(1, epochs + 1):
         model.train()
         total_loss = 0.0
-        nan_detected = False
+        optimizer.zero_grad(set_to_none=True)
 
         progress = tqdm(
             train_loader,
-            desc=f"Epoch {epoch}/{epochs} - Entrenamiento",
+            desc=f"Epoch {epoch}/{epochs}",
             leave=False,
+            disable=False,
         )
 
         for step, (x, y) in enumerate(progress, start=1):
-            x = x.to(device)
-            y = y.to(device)
-
-            optimizer.zero_grad(set_to_none=True)
+            x = x.to(device, non_blocking=True)
+            y = y.to(device, non_blocking=True)
 
             with autocast(enabled=use_amp):
-                scores = model(x)
-                loss = F.cross_entropy(
-                    scores.view(-1, scores.size(-1)), y.view(-1)
+                if using_hf_model:
+                    outputs = model(input_ids=x, labels=y)
+                    loss = outputs.loss
+                else:
+                    scores = model(x)
+                    loss = F.cross_entropy(
+                        scores.view(-1, scores.size(-1)), y.view(-1)
+                    )
+
+            if not torch.isfinite(loss):
+                raise RuntimeError(
+                    "Se detectó un valor de pérdida no finito. Reduce el learning rate "
+                    "o verifica los datos de entrada."
                 )
 
-            if torch.isnan(loss) or torch.isinf(loss):
-                nan_detected = True
-                break
-
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            scaler.step(optimizer)
-            scaler.update()
-            scheduler.step()
-
             loss_value = loss.item()
-            total_loss += loss_value
-            progress.set_postfix(loss=loss_value)
+            scaled_loss = loss / gradient_accumulation_steps
+            scaler.scale(scaled_loss).backward()
 
-        if nan_detected:
-            print("Se detectó una pérdida NaN. Reiniciando entrenamiento desde cero.")
-            model.apply(reset_parameters)
-            optimizer = torch.optim.AdamW(
-                model.parameters(), lr=lr, weight_decay=weight_decay
-            )
-            scheduler = get_linear_schedule_with_warmup(
-                optimizer,
-                num_warmup_steps=warmup_steps,
-                num_training_steps=total_steps,
-            )
-            scaler = GradScaler(enabled=use_amp)
-            epoch = 0
-            continue
+            should_step = step % gradient_accumulation_steps == 0 or step == len(train_loader)
+            if should_step:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
+                scheduler.step()
+
+            total_loss += loss_value
+
+            if log_interval and step % log_interval == 0:
+                progress.set_postfix(loss=loss_value)
+                print(
+                    f"[Epoch {epoch} | Step {step}] Loss actual: {loss_value:.4f}",
+                    flush=True,
+                )
+
+            if memory_report_interval and step % memory_report_interval == 0:
+                log_memory_usage(device, prefix=f"[Epoch {epoch} | Step {step}] ")
 
         avg_train_loss = total_loss / max(1, len(train_loader))
-        val_loss = evaluate(model, val_loader, device, use_amp)
 
-        print(
-            f"Epoch {epoch}/{epochs} | Loss entrenamiento: {avg_train_loss:.4f} | "
-            f"Loss validación: {val_loss:.4f}"
-        )
+        val_loss = None
+        if val_loader is not None and (epoch % max(1, eval_frequency) == 0):
+            val_loss = evaluate(
+                model,
+                val_loader,
+                device,
+                use_amp,
+                using_hf_model=using_hf_model,
+            )
+
+        summary = f"Epoch {epoch}/{epochs} | Loss entrenamiento: {avg_train_loss:.4f}"
+        if val_loss is not None:
+            summary += f" | Loss validación: {val_loss:.4f}"
+        print(summary, flush=True)
 
         if checkpoint_freq > 0 and epoch % checkpoint_freq == 0:
             save_checkpoint(checkpoint_dir, epoch, model, optimizer, scheduler, scaler)
 
-        try:
-            generated = sample(
-                model,
-                device,
-                tokenizer,
-                prompt=sample_prompt,
-                length=sample_length,
-                seq_len=model.pos_embed.num_embeddings,
-            )
-            print("=== Ejemplo de texto generado ===")
-            print(generated)
-            print("=================================")
-        except Exception as exc:  # pragma: no cover - logging únicamente
-            print("Error al generar texto de ejemplo:", exc)
+        if sample_prompt:
+            try:
+                base_model = unwrap_distributed_model(model)
+                generated = sample(
+                    base_model,
+                    device,
+                    tokenizer,
+                    prompt=sample_prompt,
+                    length=sample_length,
+                    seq_len=seq_len_from_model(base_model),
+                    using_hf_model=using_hf_model,
+                )
+                print("=== Ejemplo de texto generado ===")
+                print(generated)
+                print("=================================")
+            except Exception as exc:  # pragma: no cover - logging únicamente
+                print("Error al generar texto de ejemplo:", exc)
 
-    return model
+        log_memory_usage(device, prefix=f"[Epoch {epoch} fin] ")
+
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+
+    print("[Local] Entrenamiento completado.", flush=True)
+
+    return unwrap_distributed_model(model)
 
 
 def load_dataset(tensor_path: Path) -> torch.Tensor:
@@ -482,19 +630,19 @@ def prepare_hf_dataset(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Entrenamiento GPT-2 español")
-    parser.add_argument("--epochs", type=int, default=5)
-    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--seq-len", type=int, default=128)
-    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--weight-decay", type=float, default=0.01)
-    parser.add_argument("--warmup-ratio", type=float, default=0.1)
-    parser.add_argument("--checkpoint-freq", type=int, default=1)
+    parser.add_argument("--warmup-ratio", type=float, default=0.05)
+    parser.add_argument("--checkpoint-freq", type=int, default=0)
     parser.add_argument(
         "--prepare",
         action="store_true",
         help="Descargar y tokenizar el dataset antes de entrenar",
     )
-    parser.add_argument("--val-ratio", type=float, default=0.01)
+    parser.add_argument("--val-ratio", type=float, default=0.05)
     parser.add_argument(
         "--dataset-name",
         default="wikipedia",
@@ -511,8 +659,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Split del dataset a descargar",
     )
-    parser.add_argument("--dataset-max-samples", type=int, default=None)
-    parser.add_argument("--dataset-max-tokens", type=int, default=None)
+    parser.add_argument("--dataset-max-samples", type=int, default=5000)
+    parser.add_argument("--dataset-max-tokens", type=int, default=300_000)
     parser.add_argument(
         "--force-download",
         action="store_true",
@@ -523,17 +671,99 @@ def parse_args() -> argparse.Namespace:
         default="Hola, ¿cómo",
         help="Texto inicial para las muestras generadas",
     )
-    parser.add_argument("--sample-length", type=int, default=50)
+    parser.add_argument("--sample-length", type=int, default=40)
+    parser.add_argument(
+        "--hf-model",
+        default="distilgpt2",
+        help="Modelo de Hugging Face a cargar en modo liviano",
+    )
+    parser.add_argument(
+        "--use-custom-model",
+        action="store_true",
+        help="Utiliza la arquitectura GPT-2 ligera definida en este archivo",
+    )
+    parser.add_argument("--embed-size", type=int, default=512)
+    parser.add_argument("--num-layers", type=int, default=6)
+    parser.add_argument("--num-heads", type=int, default=8)
+    parser.add_argument("--model-dropout", type=float, default=0.1)
+    parser.add_argument(
+        "--gradient-accumulation-steps",
+        type=int,
+        default=8,
+        help="Número de pasos para acumular gradientes antes de aplicar un update",
+    )
+    parser.add_argument(
+        "--max-grad-norm",
+        type=float,
+        default=1.0,
+        help="Valor máximo para el clipping de gradientes",
+    )
+    parser.add_argument(
+        "--log-interval",
+        type=int,
+        default=200,
+        help="Frecuencia (en pasos) para imprimir la pérdida intermedia",
+    )
+    parser.add_argument(
+        "--memory-report-interval",
+        type=int,
+        default=100,
+        help="Cada cuántos pasos reportar uso de memoria. 0 desactiva el reporte",
+    )
+    parser.add_argument(
+        "--eval-frequency",
+        type=int,
+        default=1,
+        help="Frecuencia de evaluación sobre el conjunto de validación (en epochs)",
+    )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=2,
+        help="Número de workers para los DataLoader (usar valores bajos ahorra RAM)",
+    )
+    parser.add_argument(
+        "--tokenizer-name",
+        type=str,
+        default="distilgpt2",
+        help="Nombre del tokenizer a cargar desde Hugging Face",
+    )
+    parser.add_argument(
+        "--disable-sampling",
+        action="store_true",
+        help="No generar muestras de texto al final de cada epoch",
+    )
+    parser.add_argument(
+        "--gradient-checkpointing",
+        action="store_true",
+        help="Activa gradient checkpointing en modelos de Hugging Face",
+    )
+    parser.add_argument(
+        "--cudnn-benchmark",
+        dest="cudnn_benchmark",
+        action="store_true",
+        help="Activa torch.backends.cudnn.benchmark para optimizar convoluciones",
+    )
+    parser.add_argument(
+        "--no-cudnn-benchmark",
+        dest="cudnn_benchmark",
+        action="store_false",
+        help="Desactiva torch.backends.cudnn.benchmark",
+    )
+    parser.set_defaults(cudnn_benchmark=True)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
 
+    dist_state = setup(args)
+    device = dist_state.device
+
     base_dir = Path(__file__).resolve().parent
     data_dir = base_dir / "Data"
 
-    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+    tokenizer = GPT2Tokenizer.from_pretrained(args.tokenizer_name)
     tokenizer.add_prefix_space = True
     tokenizer.pad_token = tokenizer.eos_token
 
@@ -544,7 +774,7 @@ def main() -> None:
     if dataset_config is None:
         dataset_config = "es" if args.dataset_name == "oscar" else "20231101.es"
     if dataset_split is None:
-        dataset_split = "train[:1%]" if args.dataset_name == "oscar" else "train"
+        dataset_split = "train[:0.5%]" if args.dataset_name == "oscar" else "train[:1%]"
 
     if args.prepare or args.force_download or not (dataset_dir / "train_ids.pt").exists():
         prepare_hf_dataset(
@@ -564,51 +794,113 @@ def main() -> None:
     val_ids = load_dataset(dataset_dir / "val_ids.pt")
 
     seq_len = args.seq_len
-    config = Config(
-        vocab_size=tokenizer.vocab_size,
-        max_seq_length=seq_len,
-        embed_size=768,
-        num_layers=12,
-        num_heads=12,
-        dropout=0.1,
-    )
+    if args.use_custom_model:
+        if args.embed_size % args.num_heads != 0:
+            raise ValueError("embed-size debe ser divisible entre num-heads")
+        config = Config(
+            vocab_size=tokenizer.vocab_size,
+            max_seq_length=seq_len,
+            embed_size=args.embed_size,
+            num_layers=args.num_layers,
+            num_heads=args.num_heads,
+            dropout=args.model_dropout,
+        )
+        model = GPT2(config)
+        using_hf_model = False
+    else:
+        dtype = torch.float16 if device.type == "cuda" else torch.float32
+        model = AutoModelForCausalLM.from_pretrained(
+            args.hf_model,
+            low_cpu_mem_usage=True,
+            torch_dtype=dtype,
+        )
+        model.resize_token_embeddings(tokenizer.vocab_size)
+        if getattr(model.config, "pad_token_id", None) is None:
+            model.config.pad_token_id = tokenizer.eos_token_id
+        model.config.use_cache = False
+        if args.gradient_checkpointing:
+            model.gradient_checkpointing_enable()
+        using_hf_model = True
 
-    train_dataset = SpanishCorpus(train_ids, seq_length=config.max_seq_length)
-    val_dataset = SpanishCorpus(val_ids, seq_length=config.max_seq_length)
+    model = model.to(device)
+
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Parámetros del modelo: {total_params / 1e6:.2f} M", flush=True)
+
+    train_dataset = SpanishCorpus(train_ids, seq_length=seq_len)
+    val_dataset = SpanishCorpus(val_ids, seq_length=seq_len)
+
+    num_workers = max(0, min(args.num_workers, os.cpu_count() or 1))
+    pin_memory = device.type == "cuda"
+    persistent_workers = pin_memory and num_workers > 0
+    loader_kwargs = {
+        "batch_size": args.batch_size,
+        "num_workers": num_workers,
+        "pin_memory": pin_memory,
+        "persistent_workers": persistent_workers,
+        "drop_last": False,
+    }
+    if num_workers > 0:
+        loader_kwargs["prefetch_factor"] = 2
 
     train_loader = DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=False
+        train_dataset,
+        shuffle=True,
+        **loader_kwargs,
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=args.batch_size, shuffle=False, drop_last=False
+        val_dataset,
+        shuffle=False,
+        **loader_kwargs,
     )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("Dispositivo en uso:", device)
+    if device.type == "cuda":
+        torch.backends.cudnn.benchmark = bool(args.cudnn_benchmark)
+        gpu_name = torch.cuda.get_device_name(device)
+        print(f"Usando GPU {gpu_name} (dispositivo {device})", flush=True)
+    else:
+        torch.backends.cudnn.benchmark = False
+        print("Usando CPU", flush=True)
 
-    model = GPT2(config).to(device)
+    log_memory_usage(device, prefix="[Inicio] ")
 
-    model = train(
+    sample_prompt = "" if args.disable_sampling else args.sample_prompt
+    trained_model = train(
         model,
         train_loader,
         val_loader,
         tokenizer,
         device,
+        rank=0,
+        distributed=False,
+        train_sampler=None,
+        val_sampler=None,
         epochs=args.epochs,
         lr=args.lr,
         weight_decay=args.weight_decay,
         warmup_ratio=args.warmup_ratio,
         checkpoint_dir=base_dir / "checkpoints",
         checkpoint_freq=args.checkpoint_freq,
-        sample_prompt=args.sample_prompt,
+        sample_prompt=sample_prompt,
         sample_length=args.sample_length,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        max_grad_norm=args.max_grad_norm,
+        log_interval=args.log_interval,
+        memory_report_interval=args.memory_report_interval,
+        eval_frequency=args.eval_frequency,
+        using_hf_model=using_hf_model,
     )
 
     model_path = base_dir / "gpt2_spanish.pth"
-    torch.save(model.state_dict(), model_path)
-    print(f"Modelo guardado en {model_path}")
+    torch.save(trained_model.state_dict(), model_path)
+    print(f"Modelo guardado en {model_path}", flush=True)
 
 
 if __name__ == "__main__":
-    main()
+    # Ejecutar directamente:
+    #   python train_gpt2_spanish.py --prepare
+    try:
+        main()
+    finally:
+        cleanup()
 

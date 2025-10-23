@@ -5,26 +5,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-if os.name == "nt" and "TORCH_DISTRIBUTED_USE_LIBUV" not in os.environ:
-    # En Windows, algunas distribuciones de PyTorch no incluyen soporte para libuv.
-    # torchrun intenta usar libuv por defecto para el rendezvous TCP y falla con
-    # "use_libuv was requested but PyTorch was build without libuv support".
-    # Forzamos el uso del backend basado en sockets tradicionales dentro del
-    # proceso de entrenamiento. Aun así, es recomendable establecer esta
-    # variable en la shell antes de invocar torchrun para evitar el fallo
-    # durante el rendezvous inicial.
-    os.environ["TORCH_DISTRIBUTED_USE_LIBUV"] = "0"
-
+import psutil
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.cuda.amp import GradScaler, autocast
-from torch.nn.parallel import DistributedDataParallel
-from torch.utils.data import DataLoader, Dataset
-from torch.utils.data.distributed import DistributedSampler
+from torch.utils.data import DataLoader, Dataset, Sampler
 from tqdm.auto import tqdm
-from transformers import GPT2Tokenizer, get_linear_schedule_with_warmup
+from transformers import AutoModelForCausalLM, GPT2Tokenizer, get_linear_schedule_with_warmup
 
 
 class Config:
@@ -153,162 +142,109 @@ class SpanishCorpus(Dataset):
         return x, y
 
 
+def log_memory_usage(device: torch.device, prefix: str = "") -> None:
+    """Imprime el uso de VRAM (si hay GPU) y RAM en el proceso."""
+
+    ram = psutil.virtual_memory()
+    ram_msg = (
+        f"RAM usada: {ram.used / (1024 ** 3):.2f} GB / "
+        f"{ram.total / (1024 ** 3):.2f} GB"
+    )
+    if device.type == "cuda":
+        allocated = torch.cuda.memory_allocated(device) / (1024 ** 2)
+        total = torch.cuda.get_device_properties(device).total_memory / (1024 ** 2)
+        vram_msg = f"VRAM usada: {allocated:.1f} MB / {total:.1f} MB"
+        print(f"{prefix}{vram_msg} | {ram_msg}", flush=True)
+    else:
+        print(f"{prefix}{ram_msg}", flush=True)
+
+
 @dataclass
 class DistributedState:
-    """Metadatos sobre el contexto distribuido activo."""
+    """Mantiene metadatos mínimos del entorno de entrenamiento actual."""
 
-    is_distributed: bool
-    rank: int
-    world_size: int
-    local_rank: int
-    device: torch.device
-    backend: Optional[str]
+    is_distributed: bool = False
+    rank: int = 0
+    world_size: int = 1
+    local_rank: int = 0
+    device: torch.device = torch.device("cpu")
+    backend: Optional[str] = None
 
 
 def unwrap_distributed_model(model: nn.Module) -> nn.Module:
-    """Devuelve el módulo real, incluso si está envuelto por DDP."""
+    """En modo mono-GPU no existe un envoltorio adicional, se devuelve tal cual."""
 
-    return model.module if isinstance(model, DistributedDataParallel) else model
+    return model
+
+
+def seq_len_from_model(model: nn.Module) -> int:
+    """Obtiene la longitud máxima de contexto soportada por el modelo actual."""
+
+    if hasattr(model, "config") and getattr(model.config, "n_positions", None):
+        return int(model.config.n_positions)
+    if hasattr(model, "pos_embed"):
+        return int(model.pos_embed.num_embeddings)
+    return 128
 
 
 def setup(args: argparse.Namespace) -> DistributedState:
-    """Configura el contexto distribuido (o single-process) y devuelve su estado."""
+    """Inicializa un entorno de entrenamiento local mono-proceso."""
 
-    env_world_size = int(os.environ.get("WORLD_SIZE", "1"))
-    cli_world_size = args.world_size if args.world_size is not None else env_world_size
-    should_distribute = (
-        args.distributed
-        or cli_world_size > 1
-        or env_world_size > 1
-        or (args.rank is not None and args.rank >= 0)
-    )
-
-    if not should_distribute:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(
-            "[Rank 0] Ejecutando en modo single-process. "
-            f"Dispositivo: {device}. WORLD_SIZE=1",
-            flush=True,
-        )
-        return DistributedState(
-            is_distributed=False,
-            rank=0,
-            world_size=1,
-            local_rank=0,
-            device=device,
-            backend=None,
-        )
-
-    master_addr = args.master_addr or os.environ.get("MASTER_ADDR", "127.0.0.1")
-    master_port = args.master_port or os.environ.get("MASTER_PORT", "29500")
-    os.environ["MASTER_ADDR"] = str(master_addr)
-    os.environ["MASTER_PORT"] = str(master_port)
-
-    world_size = cli_world_size if cli_world_size is not None else env_world_size
-    if world_size < 1:
-        raise ValueError("WORLD_SIZE debe ser mayor o igual a 1")
-    os.environ["WORLD_SIZE"] = str(world_size)
-
-    rank = args.rank if args.rank is not None and args.rank >= 0 else int(os.environ.get("RANK", "0"))
-    if rank < 0 or rank >= world_size:
-        raise ValueError(f"RANK debe estar en el rango [0, {world_size - 1}]")
-    os.environ["RANK"] = str(rank)
-
-    local_rank = (
-        args.local_rank
-        if args.local_rank is not None and args.local_rank >= 0
-        else int(os.environ.get("LOCAL_RANK", "0"))
-    )
-    os.environ["LOCAL_RANK"] = str(local_rank)
-
-    preferred_backend = "nccl" if torch.cuda.is_available() else "gloo"
-    backend = preferred_backend
-    init_error: Optional[RuntimeError] = None
-    try:
-        dist.init_process_group(
-            backend=backend,
-            init_method="env://",
-            rank=rank,
-            world_size=world_size,
-        )
-    except RuntimeError as exc:
-        init_error = exc
-        if preferred_backend == "nccl":
-            backend = "gloo"
-            print(
-                f"[Rank {rank}] Falló la inicialización NCCL ({exc}). "
-                "Reintentando con backend 'gloo'.",
-                flush=True,
-            )
-            dist.init_process_group(
-                backend=backend,
-                init_method="env://",
-                rank=rank,
-                world_size=world_size,
-            )
-        else:
-            raise
-
-    if torch.cuda.is_available():
-        device_count = torch.cuda.device_count()
-        device_index = local_rank if 0 <= local_rank < device_count else 0
-        if local_rank >= device_count:
-            print(
-                f"[Rank {rank}] Advertencia: LOCAL_RANK {local_rank} excede las GPUs disponibles "
-                f"({device_count}). Se usará la GPU 0.",
-                flush=True,
-            )
-        torch.cuda.set_device(device_index)
-        device = torch.device("cuda", device_index)
-    else:
-        device = torch.device("cpu")
-
-    debug_msg = (
-        f"[Rank {rank}] Proceso inicializado | backend={backend} | "
-        f"world_size={world_size} | local_rank={local_rank} | "
-        f"MASTER={master_addr}:{master_port}"
-    )
-    if init_error is not None and backend == "gloo":
-        debug_msg += " | fallback=gloo"
-    print(debug_msg, flush=True)
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda":
+        # Se fuerza el uso del primer dispositivo disponible para evitar
+        # inicializaciones accidentales sobre CPU cuando sí hay GPU.
+        torch.cuda.set_device(0)
         gpu_name = torch.cuda.get_device_name(device)
-        print(
-            f"[Rank {rank}] Usando GPU '{gpu_name}' en el índice {device.index}.",
-            flush=True,
-        )
+        print(f"[Local] Entrenamiento en GPU: {gpu_name} ({device})", flush=True)
     else:
-        print(f"[Rank {rank}] Usando CPU.", flush=True)
+        print("[Local] Entrenamiento en CPU (no se detectó GPU CUDA).", flush=True)
 
     return DistributedState(
-        is_distributed=True,
-        rank=rank,
-        world_size=world_size,
-        local_rank=local_rank,
+        is_distributed=False,
+        rank=0,
+        world_size=1,
+        local_rank=0,
         device=device,
-        backend=backend,
+        backend=None,
     )
 
 
 def cleanup() -> None:
-    """Libera los recursos del proceso distribuido si están inicializados."""
+    """No se requiere limpieza adicional en modo mono-proceso."""
 
-    if dist.is_available() and dist.is_initialized():
-        dist.destroy_process_group()
+    return None
 
 
 def sample(
-    model: GPT2,
+    model: nn.Module,
     device: torch.device,
     tokenizer: GPT2Tokenizer,
     prompt: str,
     length: int = 50,
     temperature: float = 1.0,
     seq_len: int = 128,
+    using_hf_model: bool = False,
 ) -> str:
     model.eval()
-    tokens = tokenizer.encode(prompt, return_tensors="pt").to(device)
+    input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
+
+    if using_hf_model and hasattr(model, "generate"):
+        max_context = min(seq_len, getattr(model.config, "n_positions", seq_len))
+        total_max = min(input_ids.size(1) + length, max_context)
+        total_max = max(total_max, input_ids.size(1) + 1)
+        with torch.no_grad():
+            generated = model.generate(
+                input_ids,
+                max_length=total_max,
+                temperature=max(temperature, 1e-6),
+                do_sample=True,
+                top_p=0.95,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+        return tokenizer.decode(generated[0], skip_special_tokens=True)
+
+    tokens = input_ids
     for _ in range(length):
         tokens_ = tokens[:, -seq_len:]
         with torch.no_grad():
@@ -330,31 +266,28 @@ def evaluate(
     loader: DataLoader,
     device: torch.device,
     use_amp: bool,
-    distributed: bool,
-    rank: int,
+    using_hf_model: bool,
 ) -> float:
     model.eval()
     total_loss = 0.0
     total_steps = 0
-    progress = tqdm(loader, desc="Validación", leave=False, disable=rank != 0)
+    progress = tqdm(loader, desc="Validación", leave=False, disable=False)
     with torch.no_grad():
         for x, y in progress:
-            x = x.to(device)
-            y = y.to(device)
+            x = x.to(device, non_blocking=True)
+            y = y.to(device, non_blocking=True)
             with autocast(enabled=use_amp):
-                scores = model(x)
-                loss = F.cross_entropy(
-                    scores.view(-1, scores.size(-1)), y.view(-1)
-                )
+                if using_hf_model:
+                    outputs = model(input_ids=x, labels=y)
+                    loss = outputs.loss
+                else:
+                    scores = model(x)
+                    loss = F.cross_entropy(
+                        scores.view(-1, scores.size(-1)), y.view(-1)
+                    )
             total_loss += loss.item()
             total_steps += 1
-            if rank == 0:
-                progress.set_postfix(loss=loss.item())
-
-    if distributed:
-        stats = torch.tensor([total_loss, total_steps], device=device)
-        dist.all_reduce(stats, op=dist.ReduceOp.SUM)
-        total_loss, total_steps = stats.tolist()
+            progress.set_postfix(loss=loss.item())
 
     return total_loss / max(1, total_steps)
 
@@ -389,8 +322,8 @@ def train(
     device: torch.device,
     rank: int,
     distributed: bool,
-    train_sampler: Optional[DistributedSampler],
-    val_sampler: Optional[DistributedSampler],
+    train_sampler: Optional[Sampler],
+    val_sampler: Optional[Sampler],
     epochs: int = 5,
     lr: float = 3e-4,
     weight_decay: float = 0.01,
@@ -399,45 +332,39 @@ def train(
     checkpoint_freq: int = 1,
     sample_prompt: str = "Hola, ¿cómo",
     sample_length: int = 50,
+    gradient_accumulation_steps: int = 4,
+    max_grad_norm: float = 1.0,
+    log_interval: int = 100,
+    memory_report_interval: int = 100,
+    eval_frequency: int = 1,
+    using_hf_model: bool = False,
 ) -> nn.Module:
-    use_amp = device.type == "cuda"
-    is_main_process = rank == 0
-    dataset_size = len(train_loader.dataset)
-    if distributed:
-        print(
-            f"[Rank {rank}] Preparando entrenamiento distribuido con {dataset_size} muestras locales.",
-            flush=True,
-        )
-        print(
-            f"[Rank {rank}] Sincronizando procesos antes de iniciar el entrenamiento…",
-            flush=True,
-        )
-        dist.barrier()
-        print(
-            f"[Rank {rank}] Sincronización inicial completada. Comenzando epochs.",
-            flush=True,
-        )
-    else:
-        print(
-            f"[Rank {rank}] Entrenamiento en modo single-process con {dataset_size} muestras.",
-            flush=True,
-        )
+    del rank, distributed, train_sampler, val_sampler  # Compatibilidad de firma.
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    total_steps = epochs * max(1, len(train_loader))
-    warmup_steps = max(1, int(total_steps * warmup_ratio))
+    use_amp = device.type == "cuda"
+    dataset_size = len(train_loader.dataset)
+    print(
+        f"[Local] Entrenando con {dataset_size} muestras totales en modo mono-GPU.",
+        flush=True,
+    )
+
+    gradient_accumulation_steps = max(1, gradient_accumulation_steps)
+    updates_per_epoch = math.ceil(len(train_loader) / gradient_accumulation_steps)
+    total_updates = max(1, epochs * updates_per_epoch)
+
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.95)
+    )
+    warmup_steps = max(1, int(total_updates * warmup_ratio))
     scheduler = get_linear_schedule_with_warmup(
-        optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_steps
+        optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_updates
     )
     scaler = GradScaler(enabled=use_amp)
 
-    epoch = 0
-    while epoch < epochs:
-        epoch += 1
+    for epoch in range(1, epochs + 1):
         model.train()
         total_loss = 0.0
-        total_steps_epoch = 0
-        nan_detected = False
+        optimizer.zero_grad(set_to_none=True)
 
         if distributed and train_sampler is not None:
             # Cada proceso baraja un subconjunto distinto del dataset.
@@ -445,91 +372,72 @@ def train(
 
         progress = tqdm(
             train_loader,
-            desc=f"Epoch {epoch}/{epochs} - Entrenamiento (rank {rank})",
+            desc=f"Epoch {epoch}/{epochs}",
             leave=False,
-            disable=not is_main_process,
+            disable=False,
         )
 
         for step, (x, y) in enumerate(progress, start=1):
-            x = x.to(device)
-            y = y.to(device)
-
-            optimizer.zero_grad(set_to_none=True)
+            x = x.to(device, non_blocking=True)
+            y = y.to(device, non_blocking=True)
 
             with autocast(enabled=use_amp):
-                scores = model(x)
-                loss = F.cross_entropy(
-                    scores.view(-1, scores.size(-1)), y.view(-1)
+                if using_hf_model:
+                    outputs = model(input_ids=x, labels=y)
+                    loss = outputs.loss
+                else:
+                    scores = model(x)
+                    loss = F.cross_entropy(
+                        scores.view(-1, scores.size(-1)), y.view(-1)
+                    )
+
+            if not torch.isfinite(loss):
+                raise RuntimeError(
+                    "Se detectó un valor de pérdida no finito. Reduce el learning rate "
+                    "o verifica los datos de entrada."
                 )
-
-            if torch.isnan(loss) or torch.isinf(loss):
-                nan_detected = True
-                break
-
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            scaler.step(optimizer)
-            scaler.update()
-            scheduler.step()
 
             loss_value = loss.item()
+            scaled_loss = loss / gradient_accumulation_steps
+            scaler.scale(scaled_loss).backward()
+
+            should_step = step % gradient_accumulation_steps == 0 or step == len(train_loader)
+            if should_step:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
+                scheduler.step()
+
             total_loss += loss_value
-            total_steps_epoch += 1
-            if is_main_process:
+
+            if log_interval and step % log_interval == 0:
                 progress.set_postfix(loss=loss_value)
-
-        if distributed:
-            nan_tensor = torch.tensor([1 if nan_detected else 0], device=device)
-            dist.all_reduce(nan_tensor, op=dist.ReduceOp.SUM)
-            nan_detected = nan_tensor.item() > 0
-
-            stats = torch.tensor([total_loss, total_steps_epoch], device=device)
-            dist.all_reduce(stats, op=dist.ReduceOp.SUM)
-            total_loss, total_steps_epoch = stats.tolist()
-
-        if nan_detected:
-            if is_main_process:
                 print(
-                    "Se detectó una pérdida NaN. Reiniciando entrenamiento desde cero."
+                    f"[Epoch {epoch} | Step {step}] Loss actual: {loss_value:.4f}",
+                    flush=True,
                 )
-            base_model = unwrap_distributed_model(model)
-            base_model.apply(reset_parameters)
 
-            if distributed:
-                # Sincroniza los nuevos pesos entre todos los procesos para evitar divergencias.
-                state_dict = base_model.state_dict() if is_main_process else None
-                obj_list = [state_dict]
-                dist.broadcast_object_list(obj_list, src=0)
-                if not is_main_process:
-                    unwrap_distributed_model(model).load_state_dict(obj_list[0])
-                dist.barrier()
+            if memory_report_interval and step % memory_report_interval == 0:
+                log_memory_usage(device, prefix=f"[Epoch {epoch} | Step {step}] ")
 
-            optimizer = torch.optim.AdamW(
-                model.parameters(), lr=lr, weight_decay=weight_decay
+        avg_train_loss = total_loss / max(1, len(train_loader))
+
+        val_loss = None
+        if val_loader is not None and (epoch % max(1, eval_frequency) == 0):
+            val_loss = evaluate(
+                model,
+                val_loader,
+                device,
+                use_amp,
+                using_hf_model=using_hf_model,
             )
-            scheduler = get_linear_schedule_with_warmup(
-                optimizer,
-                num_warmup_steps=warmup_steps,
-                num_training_steps=total_steps,
-            )
-            scaler = GradScaler(enabled=use_amp)
-            epoch = 0
-            continue
 
-        avg_train_loss = total_loss / max(1, total_steps_epoch)
-
-        if distributed and val_sampler is not None:
-            val_sampler.set_epoch(epoch)
-
-        val_loss = evaluate(
-            model,
-            val_loader,
-            device,
-            use_amp,
-            distributed,
-            rank,
-        )
+        summary = f"Epoch {epoch}/{epochs} | Loss entrenamiento: {avg_train_loss:.4f}"
+        if val_loss is not None:
+            summary += f" | Loss validación: {val_loss:.4f}"
+        print(summary, flush=True)
 
         if is_main_process:
             print(
@@ -540,7 +448,7 @@ def train(
         if is_main_process and checkpoint_freq > 0 and epoch % checkpoint_freq == 0:
             save_checkpoint(checkpoint_dir, epoch, model, optimizer, scheduler, scaler)
 
-        if is_main_process:
+        if sample_prompt:
             try:
                 base_model = unwrap_distributed_model(model)
                 generated = sample(
@@ -549,7 +457,8 @@ def train(
                     tokenizer,
                     prompt=sample_prompt,
                     length=sample_length,
-                    seq_len=base_model.pos_embed.num_embeddings,
+                    seq_len=seq_len_from_model(base_model),
+                    using_hf_model=using_hf_model,
                 )
                 print("=== Ejemplo de texto generado ===")
                 print(generated)
@@ -557,21 +466,13 @@ def train(
             except Exception as exc:  # pragma: no cover - logging únicamente
                 print("Error al generar texto de ejemplo:", exc)
 
-    if distributed:
-        print(
-            f"[Rank {rank}] Esperando sincronización final tras completar los epochs…",
-            flush=True,
-        )
-        dist.barrier()
-        print(
-            f"[Rank {rank}] Todos los procesos completaron el entrenamiento.",
-            flush=True,
-        )
-    else:
-        print("[Rank 0] Entrenamiento single-process completado.", flush=True)
+        log_memory_usage(device, prefix=f"[Epoch {epoch} fin] ")
 
-    # Devolvemos el modelo base (sin el envoltorio DDP) para facilitar guardados o
-    # evaluaciones posteriores en un único proceso.
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+
+    print("[Local] Entrenamiento completado.", flush=True)
+
     return unwrap_distributed_model(model)
 
 
@@ -740,19 +641,19 @@ def prepare_hf_dataset(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Entrenamiento GPT-2 español")
-    parser.add_argument("--epochs", type=int, default=5)
-    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--seq-len", type=int, default=128)
-    parser.add_argument("--lr", type=float, default=3e-4)
+    parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--weight-decay", type=float, default=0.01)
-    parser.add_argument("--warmup-ratio", type=float, default=0.1)
-    parser.add_argument("--checkpoint-freq", type=int, default=1)
+    parser.add_argument("--warmup-ratio", type=float, default=0.05)
+    parser.add_argument("--checkpoint-freq", type=int, default=0)
     parser.add_argument(
         "--prepare",
         action="store_true",
         help="Descargar y tokenizar el dataset antes de entrenar",
     )
-    parser.add_argument("--val-ratio", type=float, default=0.01)
+    parser.add_argument("--val-ratio", type=float, default=0.05)
     parser.add_argument(
         "--dataset-name",
         default="wikipedia",
@@ -769,8 +670,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Split del dataset a descargar",
     )
-    parser.add_argument("--dataset-max-samples", type=int, default=None)
-    parser.add_argument("--dataset-max-tokens", type=int, default=None)
+    parser.add_argument("--dataset-max-samples", type=int, default=5000)
+    parser.add_argument("--dataset-max-tokens", type=int, default=300_000)
     parser.add_argument(
         "--force-download",
         action="store_true",
@@ -781,41 +682,72 @@ def parse_args() -> argparse.Namespace:
         default="Hola, ¿cómo",
         help="Texto inicial para las muestras generadas",
     )
-    parser.add_argument("--sample-length", type=int, default=50)
+    parser.add_argument("--sample-length", type=int, default=40)
     parser.add_argument(
-        "--distributed",
+        "--hf-model",
+        default="distilgpt2",
+        help="Modelo de Hugging Face a cargar en modo liviano",
+    )
+    parser.add_argument(
+        "--use-custom-model",
         action="store_true",
-        help="Fuerza la inicialización de torch.distributed aunque WORLD_SIZE=1",
+        help="Utiliza la arquitectura GPT-2 ligera definida en este archivo",
+    )
+    parser.add_argument("--embed-size", type=int, default=512)
+    parser.add_argument("--num-layers", type=int, default=6)
+    parser.add_argument("--num-heads", type=int, default=8)
+    parser.add_argument("--model-dropout", type=float, default=0.1)
+    parser.add_argument(
+        "--gradient-accumulation-steps",
+        type=int,
+        default=8,
+        help="Número de pasos para acumular gradientes antes de aplicar un update",
     )
     parser.add_argument(
-        "--master-addr",
+        "--max-grad-norm",
+        type=float,
+        default=1.0,
+        help="Valor máximo para el clipping de gradientes",
+    )
+    parser.add_argument(
+        "--log-interval",
+        type=int,
+        default=200,
+        help="Frecuencia (en pasos) para imprimir la pérdida intermedia",
+    )
+    parser.add_argument(
+        "--memory-report-interval",
+        type=int,
+        default=100,
+        help="Cada cuántos pasos reportar uso de memoria. 0 desactiva el reporte",
+    )
+    parser.add_argument(
+        "--eval-frequency",
+        type=int,
+        default=1,
+        help="Frecuencia de evaluación sobre el conjunto de validación (en epochs)",
+    )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=2,
+        help="Número de workers para los DataLoader (usar valores bajos ahorra RAM)",
+    )
+    parser.add_argument(
+        "--tokenizer-name",
         type=str,
-        default=None,
-        help="Dirección IP o hostname del nodo maestro (MASTER_ADDR)",
+        default="distilgpt2",
+        help="Nombre del tokenizer a cargar desde Hugging Face",
     )
     parser.add_argument(
-        "--master-port",
-        type=int,
-        default=None,
-        help="Puerto TCP del nodo maestro (MASTER_PORT)",
+        "--disable-sampling",
+        action="store_true",
+        help="No generar muestras de texto al final de cada epoch",
     )
     parser.add_argument(
-        "--rank",
-        type=int,
-        default=None,
-        help="Rank global del proceso actual (RANK)",
-    )
-    parser.add_argument(
-        "--world-size",
-        type=int,
-        default=None,
-        help="Número total de procesos en todos los nodos (WORLD_SIZE)",
-    )
-    parser.add_argument(
-        "--local-rank",
-        type=int,
-        default=-1,
-        help="Rank local dentro del nodo (LOCAL_RANK, usado por torchrun)",
+        "--gradient-checkpointing",
+        action="store_true",
+        help="Activa gradient checkpointing en modelos de Hugging Face",
     )
     parser.add_argument(
         "--cudnn-benchmark",
@@ -829,7 +761,7 @@ def parse_args() -> argparse.Namespace:
         action="store_false",
         help="Desactiva torch.backends.cudnn.benchmark",
     )
-    parser.set_defaults(cudnn_benchmark=None)
+    parser.set_defaults(cudnn_benchmark=True)
     return parser.parse_args()
 
 
@@ -837,16 +769,12 @@ def main() -> None:
     args = parse_args()
 
     dist_state = setup(args)
-    rank = dist_state.rank
-    world_size = dist_state.world_size
-    distributed = dist_state.is_distributed
     device = dist_state.device
-    is_main_process = rank == 0
 
     base_dir = Path(__file__).resolve().parent
     data_dir = base_dir / "Data"
 
-    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+    tokenizer = GPT2Tokenizer.from_pretrained(args.tokenizer_name)
     tokenizer.add_prefix_space = True
     tokenizer.pad_token = tokenizer.eos_token
 
@@ -857,7 +785,7 @@ def main() -> None:
     if dataset_config is None:
         dataset_config = "es" if args.dataset_name == "oscar" else "20231101.es"
     if dataset_split is None:
-        dataset_split = "train[:1%]" if args.dataset_name == "oscar" else "train"
+        dataset_split = "train[:0.5%]" if args.dataset_name == "oscar" else "train[:1%]"
 
     if args.prepare or args.force_download or not (dataset_dir / "train_ids.pt").exists():
         if is_main_process:
@@ -880,17 +808,54 @@ def main() -> None:
     val_ids = load_dataset(dataset_dir / "val_ids.pt")
 
     seq_len = args.seq_len
-    config = Config(
-        vocab_size=tokenizer.vocab_size,
-        max_seq_length=seq_len,
-        embed_size=768,
-        num_layers=12,
-        num_heads=12,
-        dropout=0.1,
-    )
+    if args.use_custom_model:
+        if args.embed_size % args.num_heads != 0:
+            raise ValueError("embed-size debe ser divisible entre num-heads")
+        config = Config(
+            vocab_size=tokenizer.vocab_size,
+            max_seq_length=seq_len,
+            embed_size=args.embed_size,
+            num_layers=args.num_layers,
+            num_heads=args.num_heads,
+            dropout=args.model_dropout,
+        )
+        model = GPT2(config)
+        using_hf_model = False
+    else:
+        dtype = torch.float16 if device.type == "cuda" else torch.float32
+        model = AutoModelForCausalLM.from_pretrained(
+            args.hf_model,
+            low_cpu_mem_usage=True,
+            torch_dtype=dtype,
+        )
+        model.resize_token_embeddings(tokenizer.vocab_size)
+        if getattr(model.config, "pad_token_id", None) is None:
+            model.config.pad_token_id = tokenizer.eos_token_id
+        model.config.use_cache = False
+        if args.gradient_checkpointing:
+            model.gradient_checkpointing_enable()
+        using_hf_model = True
 
-    train_dataset = SpanishCorpus(train_ids, seq_length=config.max_seq_length)
-    val_dataset = SpanishCorpus(val_ids, seq_length=config.max_seq_length)
+    model = model.to(device)
+
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Parámetros del modelo: {total_params / 1e6:.2f} M", flush=True)
+
+    train_dataset = SpanishCorpus(train_ids, seq_length=seq_len)
+    val_dataset = SpanishCorpus(val_ids, seq_length=seq_len)
+
+    num_workers = max(0, min(args.num_workers, os.cpu_count() or 1))
+    pin_memory = device.type == "cuda"
+    persistent_workers = pin_memory and num_workers > 0
+    loader_kwargs = {
+        "batch_size": args.batch_size,
+        "num_workers": num_workers,
+        "pin_memory": pin_memory,
+        "persistent_workers": persistent_workers,
+        "drop_last": False,
+    }
+    if num_workers > 0:
+        loader_kwargs["prefetch_factor"] = 2
 
     train_sampler: Optional[DistributedSampler]
     val_sampler: Optional[DistributedSampler]
@@ -919,93 +884,60 @@ def main() -> None:
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=args.batch_size,
-        shuffle=train_sampler is None,
-        sampler=train_sampler,
-        drop_last=False,
+        shuffle=True,
+        **loader_kwargs,
     )
     val_loader = DataLoader(
         val_dataset,
-        batch_size=args.batch_size,
-        shuffle=val_sampler is None,
-        sampler=val_sampler,
-        drop_last=False,
+        shuffle=False,
+        **loader_kwargs,
     )
 
     if device.type == "cuda":
-        cudnn_flag = True if args.cudnn_benchmark is None else bool(args.cudnn_benchmark)
-        torch.backends.cudnn.benchmark = cudnn_flag
+        torch.backends.cudnn.benchmark = bool(args.cudnn_benchmark)
+        gpu_name = torch.cuda.get_device_name(device)
+        print(f"Usando GPU {gpu_name} (dispositivo {device})", flush=True)
     else:
         torch.backends.cudnn.benchmark = False
-    print(
-        f"[Rank {rank}] cudnn.benchmark={'ON' if torch.backends.cudnn.benchmark else 'OFF'}",
-        flush=True,
-    )
+        print("Usando CPU", flush=True)
 
-    if device.type == "cuda":
-        gpu_name = torch.cuda.get_device_name(device)
-        print(
-            f"[Rank {rank}] usando GPU {gpu_name} (dispositivo {device})",
-            flush=True,
-        )
-    else:
-        print(f"[Rank {rank}] usando CPU", flush=True)
+    log_memory_usage(device, prefix="[Inicio] ")
 
-    model = GPT2(config).to(device)
-
-    if distributed:
-        # En modo distribuido cada proceso conserva únicamente su porción del modelo en la GPU
-        # asociada (local_rank). Al envolver el modelo con DDP, PyTorch se encarga de
-        # sincronizar automáticamente los gradientes mediante operaciones all-reduce al final
-        # de cada backward(). Esto garantiza que todos los nodos/núcleos vean el mismo estado de
-        # entrenamiento sin que tengamos que escribir llamadas manuales a dist.all_reduce.
-        # Cuando el script se ejecuta en modo single-GPU o CPU, se omite este envoltorio y el
-        # flujo permanece idéntico al entrenamiento tradicional.
-        model = DistributedDataParallel(
-            model,
-            device_ids=[device.index] if device.type == "cuda" else None,
-            output_device=device.index if device.type == "cuda" else None,
-            find_unused_parameters=False,
-        )
-
+    sample_prompt = "" if args.disable_sampling else args.sample_prompt
     trained_model = train(
         model,
         train_loader,
         val_loader,
         tokenizer,
         device,
-        rank,
-        distributed,
-        train_sampler,
-        val_sampler,
+        rank=0,
+        distributed=False,
+        train_sampler=None,
+        val_sampler=None,
         epochs=args.epochs,
         lr=args.lr,
         weight_decay=args.weight_decay,
         warmup_ratio=args.warmup_ratio,
         checkpoint_dir=base_dir / "checkpoints",
         checkpoint_freq=args.checkpoint_freq,
-        sample_prompt=args.sample_prompt,
+        sample_prompt=sample_prompt,
         sample_length=args.sample_length,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        max_grad_norm=args.max_grad_norm,
+        log_interval=args.log_interval,
+        memory_report_interval=args.memory_report_interval,
+        eval_frequency=args.eval_frequency,
+        using_hf_model=using_hf_model,
     )
 
-    if is_main_process:
-        model_path = base_dir / "gpt2_spanish.pth"
-        torch.save(trained_model.state_dict(), model_path)
-        print(f"Modelo guardado en {model_path}", flush=True)
+    model_path = base_dir / "gpt2_spanish.pth"
+    torch.save(trained_model.state_dict(), model_path)
+    print(f"Modelo guardado en {model_path}", flush=True)
 
 
 if __name__ == "__main__":
-    # Ejemplo (WSL) de lanzamiento distribuido con torchrun para 2 nodos y 1 GPU por nodo:
-    # node0:
-    #   MASTER_ADDR=192.168.1.10 MASTER_PORT=12355 WORLD_SIZE=2 RANK=0 LOCAL_RANK=0 \
-    #   torchrun --nnodes=2 --nproc_per_node=1 --node_rank=0 \
-    #       --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \
-    #       train_gpt2_spanish.py --distributed --batch-size=8 --seq-len=128
-    # node1:
-    #   MASTER_ADDR=192.168.1.10 MASTER_PORT=12355 WORLD_SIZE=2 RANK=1 LOCAL_RANK=0 \
-    #   torchrun --nnodes=2 --nproc_per_node=1 --node_rank=1 \
-    #       --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \
-    #       train_gpt2_spanish.py --distributed --batch-size=8 --seq-len=128
+    # Ejecutar directamente:
+    #   python train_gpt2_spanish.py --prepare
     try:
         main()
     finally:

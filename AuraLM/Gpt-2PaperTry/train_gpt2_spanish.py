@@ -8,7 +8,7 @@ import time
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Dict, Iterable, Optional
 
 import psutil
 import torch
@@ -22,6 +22,16 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.auto import tqdm
 from transformers import AutoModelForCausalLM, GPT2Tokenizer, get_linear_schedule_with_warmup
+
+
+DEFAULT_SEQ_LEN = 128
+DEFAULT_MODEL_DROPOUT = 0.1
+
+CUSTOM_MODEL_PRESETS: Dict[str, Dict[str, int]] = {
+    "gpt2-small": {"embed_size": 768, "num_layers": 12, "num_heads": 12, "seq_len": 1024},
+    "gpt2-medium": {"embed_size": 1024, "num_layers": 24, "num_heads": 16, "seq_len": 1024},
+    "gpt2-large": {"embed_size": 1280, "num_layers": 36, "num_heads": 20, "seq_len": 1024},
+}
 
 
 class Config:
@@ -855,7 +865,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Entrenamiento GPT-2 español")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=2)
-    parser.add_argument("--seq-len", type=int, default=128)
+    parser.add_argument("--seq-len", type=int, default=DEFAULT_SEQ_LEN)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--warmup-ratio", type=float, default=0.05)
@@ -914,10 +924,20 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Utiliza la arquitectura GPT-2 ligera definida en este archivo",
     )
+    parser.add_argument(
+        "--custom-preset",
+        choices=sorted(CUSTOM_MODEL_PRESETS.keys()),
+        default=None,
+        help=(
+            "Selecciona un preset para la arquitectura personalizada (gpt2-small, "
+            "gpt2-medium, gpt2-large). Sobrescribe embed-size, num-heads, num-layers "
+            "y, si no se modificó manualmente, la longitud de secuencia."
+        ),
+    )
     parser.add_argument("--embed-size", type=int, default=512)
     parser.add_argument("--num-layers", type=int, default=6)
     parser.add_argument("--num-heads", type=int, default=8)
-    parser.add_argument("--model-dropout", type=float, default=0.1)
+    parser.add_argument("--model-dropout", type=float, default=DEFAULT_MODEL_DROPOUT)
     parser.add_argument(
         "--gradient-accumulation-steps",
         type=int,
@@ -1031,6 +1051,25 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    if args.custom_preset and not args.use_custom_model:
+        if os.environ.get("RANK") in (None, "0"):
+            print(
+                "[Aviso] --custom-preset requiere la arquitectura personalizada. "
+                "Activando --use-custom-model automáticamente.",
+                flush=True,
+            )
+        args.use_custom_model = True
+
+    if args.use_custom_model and args.custom_preset:
+        preset = CUSTOM_MODEL_PRESETS[args.custom_preset]
+        args.embed_size = preset["embed_size"]
+        args.num_layers = preset["num_layers"]
+        args.num_heads = preset["num_heads"]
+        if args.model_dropout == DEFAULT_MODEL_DROPOUT and "dropout" in preset:
+            args.model_dropout = float(preset["dropout"])
+        if args.seq_len == DEFAULT_SEQ_LEN and "seq_len" in preset:
+            args.seq_len = preset["seq_len"]
+
     dist_state = setup(args)
     device = dist_state.device
     distributed = dist_state.is_distributed
@@ -1111,6 +1150,14 @@ def main() -> None:
     if args.use_custom_model:
         if args.embed_size % args.num_heads != 0:
             raise ValueError("embed-size debe ser divisible entre num-heads")
+        if is_main_process:
+            preset_name = args.custom_preset or "manual"
+            print(
+                f"{dist_state.formatted_prefix()}Config personalizada '{preset_name}': "
+                f"d_model={args.embed_size}, layers={args.num_layers}, heads={args.num_heads}, "
+                f"seq_len={seq_len}, dropout={args.model_dropout}",
+                flush=True,
+            )
         config = Config(
             vocab_size=tokenizer.vocab_size,
             max_seq_length=seq_len,

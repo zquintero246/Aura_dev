@@ -127,11 +127,54 @@ python AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py --prepare     --dataset-name w
    - Repetir análogamente en `node2`, `node3`, `node4` ajustando `NODE_RANK` y `--log-dir`.
    - Para habilitar media precisión en GPUs compatibles añade `--precision fp16` (o `--precision bf16` en hardware con soporte). Por defecto el entrenamiento usa `fp32` para maximizar la estabilidad y evitar errores de gradientes.
 
-3. **Ejemplo para nodos con múltiples GPUs**
+3. **Entrenar un GPT-2 mediano (~350 M) desde cero**
+
+   Este preset replica las dimensiones oficiales del modelo GPT-2 Medium (24 capas, 16 cabezas, 1 024 dimensiones de embedding, secuencia 1 024) y requiere al menos ~10 GB de VRAM libres por GPU cuando se usa `fp16` y acumulación de gradientes. Ajusta la acumulación según la memoria disponible.
+
+   1. **Preparar dataset ampliado (solo `node0`)**
+      ```bash
+      python AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py --prepare \
+        --dataset-name wikipedia --dataset-max-tokens 200000000 --seq-len 1024
+      ```
+      Replica luego `Data/wikipedia` hacia el resto de nodos con `rsync` o `scp` para evitar descargas repetidas.
+
+   2. **Comando base por nodo (1 GPU por máquina)**
+
+      - **node0** (`NODE_RANK=0`):
+        ```bash
+        export NODE_RANK=0
+        torchrun --nnodes=5 --nproc_per_node=1 --node_rank=$NODE_RANK \
+          --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \
+          AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py \
+          --backend nccl --use-custom-model --custom-preset gpt2-medium \
+          --seq-len 1024 --batch-size 1 --gradient-accumulation-steps 32 \
+          --precision fp16 --lr 2e-4 --weight-decay 0.01 --log-dir runs/gpt2m_node0
+        ```
+
+      - **node1** (`NODE_RANK=1`):
+        ```bash
+        export NODE_RANK=1
+        torchrun --nnodes=5 --nproc_per_node=1 --node_rank=$NODE_RANK \
+          --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \
+          AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py \
+          --backend nccl --use-custom-model --custom-preset gpt2-medium \
+          --seq-len 1024 --batch-size 1 --gradient-accumulation-steps 32 \
+          --precision fp16 --lr 2e-4 --weight-decay 0.01 --log-dir runs/gpt2m_node1
+        ```
+
+      - Repite en `node2` … `node4` cambiando únicamente `NODE_RANK` y `--log-dir`.
+
+      - Con estas opciones el batch efectivo por actualización es `1 * 32 * 5 = 160` secuencias de 1 024 tokens. Reduce `--gradient-accumulation-steps` si alguna GPU agota memoria, o incrementa `--batch-size` si usas GPUs con ≥16 GB.
+
+   3. **Verificaciones adicionales**
+      - Confirma en los logs que aparece `Config personalizada 'gpt2-medium': d_model=1024, layers=24, heads=16, seq_len=1024`.
+      - Si necesitas más estabilidad, relanza con `--precision fp32` y una acumulación mayor (p. ej. 64) a costa de más pasos de optimización.
+
+4. **Ejemplo para nodos con múltiples GPUs**
    - Si `node0` y `node1` tienen 2 GPUs, usar `--nproc_per_node=2` y NO establecer `LOCAL_RANK` manualmente (lo hace `torchrun`).
    - `WORLD_SIZE` debe ser `nnodes * nproc_per_node`. Con 2 GPUs en dos nodos y 1 GPU en los restantes: `WORLD_SIZE=8`.
 
-4. **Logs esperados en consola**
+5. **Logs esperados en consola**
    ```
 [Rank 0/5 | Node node0 | Device cuda:0] Modo Distribuido. Backend=nccl. Sincronizando...
 [Rank 0/5 | Node node0 | Device cuda:0] Precisión activa: fp32 | Autocast=OFF | GradScaler=OFF
@@ -141,7 +184,7 @@ python AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py --prepare     --dataset-name w
    ```
    - Observe cómo cada mensaje incluye `Rank`, `Node`, `Device` y el estado de sincronización (`Sync=OK`).
 
-5. **Validar sincronización de gradientes**
+6. **Validar sincronización de gradientes**
    - Ejecutar el script de prueba antes del entrenamiento:
      ```bash
      torchrun --nnodes=5 --nproc_per_node=1 --node_rank=$NODE_RANK        --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT        AuraLM/Gpt-2PaperTry/test_ddp.py --backend nccl

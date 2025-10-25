@@ -514,6 +514,9 @@ def train(
     psutil.cpu_percent(interval=None)  # Inicializa el cálculo de porcentaje de CPU.
     global_update = 0
 
+    psutil.cpu_percent(interval=None)  # Inicializa el cálculo de porcentaje de CPU.
+    global_update = 0
+
     for epoch in range(1, epochs + 1):
         epoch_start = time.time()
         model.train()

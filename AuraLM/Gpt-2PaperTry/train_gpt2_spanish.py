@@ -1,19 +1,37 @@
+from __future__ import annotations
+
 import argparse
 import math
 import os
+import socket
+import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Dict, Iterable, Optional
 
 import psutil
 import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.cuda.amp import GradScaler, autocast
-from torch.utils.data import DataLoader, Dataset, Sampler
+from torch.amp import GradScaler, autocast
+from torch.nn.parallel import DistributedDataParallel
+from torch.utils.data import DataLoader, Dataset
+from torch.utils.data.distributed import DistributedSampler
+from torch.utils.tensorboard import SummaryWriter
 from tqdm.auto import tqdm
 from transformers import AutoModelForCausalLM, GPT2Tokenizer, get_linear_schedule_with_warmup
+
+
+DEFAULT_SEQ_LEN = 128
+DEFAULT_MODEL_DROPOUT = 0.1
+
+CUSTOM_MODEL_PRESETS: Dict[str, Dict[str, int]] = {
+    "gpt2-small": {"embed_size": 768, "num_layers": 12, "num_heads": 12, "seq_len": 1024},
+    "gpt2-medium": {"embed_size": 1024, "num_layers": 24, "num_heads": 16, "seq_len": 1024},
+    "gpt2-large": {"embed_size": 1280, "num_layers": 36, "num_heads": 20, "seq_len": 1024},
+}
 
 
 class Config:
@@ -142,7 +160,11 @@ class SpanishCorpus(Dataset):
         return x, y
 
 
-def log_memory_usage(device: torch.device, prefix: str = "") -> None:
+def log_memory_usage(
+    device: torch.device,
+    prefix: str = "",
+    state: Optional[DistributedState] = None,
+) -> None:
     """Imprime el uso de VRAM (si hay GPU) y RAM en el proceso."""
 
     ram = psutil.virtual_memory()
@@ -150,30 +172,46 @@ def log_memory_usage(device: torch.device, prefix: str = "") -> None:
         f"RAM usada: {ram.used / (1024 ** 3):.2f} GB / "
         f"{ram.total / (1024 ** 3):.2f} GB"
     )
+    process_prefix = state.formatted_prefix() if state else ""
     if device.type == "cuda":
         allocated = torch.cuda.memory_allocated(device) / (1024 ** 2)
         total = torch.cuda.get_device_properties(device).total_memory / (1024 ** 2)
         vram_msg = f"VRAM usada: {allocated:.1f} MB / {total:.1f} MB"
-        print(f"{prefix}{vram_msg} | {ram_msg}", flush=True)
+        print(f"{process_prefix}{prefix}{vram_msg} | {ram_msg}", flush=True)
     else:
-        print(f"{prefix}{ram_msg}", flush=True)
+        print(f"{process_prefix}{prefix}{ram_msg}", flush=True)
 
 
 @dataclass
 class DistributedState:
-    """Mantiene metadatos mínimos del entorno de entrenamiento actual."""
+    """Mantiene metadatos del entorno de entrenamiento distribuido."""
 
     is_distributed: bool = False
     rank: int = 0
     world_size: int = 1
     local_rank: int = 0
+    node_rank: int = 0
     device: torch.device = torch.device("cpu")
     backend: Optional[str] = None
+    node_name: str = socket.gethostname()
+
+    @property
+    def is_main_process(self) -> bool:
+        return self.rank == 0
+
+    def formatted_prefix(self) -> str:
+        device_repr = str(self.device)
+        return (
+            f"[Rank {self.rank}/{self.world_size} | Node {self.node_name} | "
+            f"Device {device_repr}] "
+        )
 
 
 def unwrap_distributed_model(model: nn.Module) -> nn.Module:
-    """En modo mono-GPU no existe un envoltorio adicional, se devuelve tal cual."""
+    """Devuelve el modelo subyacente si está envuelto en DDP."""
 
+    if isinstance(model, DistributedDataParallel):
+        return model.module
     return model
 
 
@@ -187,33 +225,126 @@ def seq_len_from_model(model: nn.Module) -> int:
     return 128
 
 
+def _select_backend(requested: str) -> str:
+    if requested == "auto":
+        return "nccl" if torch.cuda.is_available() else "gloo"
+    return requested
+
+
 def setup(args: argparse.Namespace) -> DistributedState:
-    """Inicializa un entorno de entrenamiento local mono-proceso."""
+    """Inicializa el entorno distribuido usando variables de entorno o CLI."""
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if device.type == "cuda":
-        # Se fuerza el uso del primer dispositivo disponible para evitar
-        # inicializaciones accidentales sobre CPU cuando sí hay GPU.
-        torch.cuda.set_device(0)
-        gpu_name = torch.cuda.get_device_name(device)
-        print(f"[Local] Entrenamiento en GPU: {gpu_name} ({device})", flush=True)
+    os.environ.setdefault("TORCH_DISTRIBUTED_USE_LIBUV", "0")
+
+    # Permite configurar parámetros de red vía CLI o variables de entorno.
+    # Estos valores son necesarios cuando torchrun se ejecuta en más de un nodo.
+    # Si se modifica el tamaño del clúster (nnodes o GPUs por nodo) basta con
+    # actualizar WORLD_SIZE/NODE_RANK antes de invocar el script.
+    if getattr(args, "master_addr", None):
+        os.environ["MASTER_ADDR"] = str(args.master_addr)
+    if getattr(args, "master_port", None):
+        os.environ["MASTER_PORT"] = str(args.master_port)
+    if getattr(args, "world_size", None):
+        os.environ["WORLD_SIZE"] = str(args.world_size)
+    if getattr(args, "rank", None) is not None:
+        os.environ["RANK"] = str(args.rank)
+    if getattr(args, "node_rank", None) is not None:
+        os.environ["NODE_RANK"] = str(args.node_rank)
+        # Cuando se lanza el script manualmente sin torchrun se utiliza NODE_RANK
+        # como RANK global para mantener compatibilidad.
+        os.environ.setdefault("RANK", str(args.node_rank))
+
+    world_size_env = int(os.environ.get("WORLD_SIZE", "1"))
+    rank_env = int(os.environ.get("RANK", os.environ.get("NODE_RANK", "0")))
+    local_rank_env = int(os.environ.get("LOCAL_RANK", "0"))
+    node_rank_env = int(os.environ.get("NODE_RANK", "0"))
+
+    distributed = world_size_env > 1
+    backend = None
+
+    if distributed:
+        requested_backend = _select_backend(getattr(args, "backend", "auto"))
+        try:
+            dist.init_process_group(
+                backend=requested_backend,
+                init_method="env://",
+                rank=rank_env,
+                world_size=world_size_env,
+            )
+            backend = requested_backend
+        except RuntimeError as exc:
+            if requested_backend == "nccl":
+                # NCCL puede fallar en algunos entornos Windows/WSL.
+                print(
+                    f"[Rank {rank_env}] NCCL no disponible ({exc}). Se intentará con 'gloo'.",
+                    flush=True,
+                )
+                dist.init_process_group(
+                    backend="gloo",
+                    init_method="env://",
+                    rank=rank_env,
+                    world_size=world_size_env,
+                )
+                backend = "gloo"
+            else:
+                raise
+
+        # Una vez inicializado el proceso distribuido se obtienen los valores reales.
+        rank_env = dist.get_rank()
+        world_size_env = dist.get_world_size()
     else:
-        print("[Local] Entrenamiento en CPU (no se detectó GPU CUDA).", flush=True)
+        backend = None
 
-    return DistributedState(
-        is_distributed=False,
-        rank=0,
-        world_size=1,
-        local_rank=0,
+    if torch.cuda.is_available():
+        device_count = torch.cuda.device_count()
+        device_index = local_rank_env if distributed else 0
+        if device_index >= device_count:
+            device_index = device_index % max(1, device_count)
+        torch.cuda.set_device(device_index)
+        device = torch.device("cuda", device_index)
+        torch.backends.cudnn.benchmark = True
+        gpu_name = torch.cuda.get_device_name(device)
+        print(
+            f"[Setup] GPU activa: {gpu_name} (cuda:{device_index}). benchmark=True",
+            flush=True,
+        )
+    else:
+        device = torch.device("cpu")
+        torch.backends.cudnn.benchmark = False
+        print("[Setup] Entrenamiento en CPU (sin CUDA disponible).", flush=True)
+
+    node_name = socket.gethostname()
+    state = DistributedState(
+        is_distributed=distributed,
+        rank=rank_env,
+        world_size=world_size_env,
+        local_rank=local_rank_env,
+        node_rank=node_rank_env,
         device=device,
-        backend=None,
+        backend=backend,
+        node_name=node_name,
     )
 
+    prefix = state.formatted_prefix()
+    mode = "Distribuido" if distributed else "Local"
+    print(
+        f"{prefix}Modo {mode}. Backend={backend or 'N/A'}. Sincronizando...",
+        flush=True,
+    )
+    if distributed:
+        dist.barrier()
+    print(f"{prefix}Sincronización inicial completada.", flush=True)
 
-def cleanup() -> None:
-    """No se requiere limpieza adicional en modo mono-proceso."""
+    return state
 
-    return None
+
+def cleanup(state: Optional[DistributedState] = None) -> None:
+    """Cierra el grupo de procesos distribuido si está activo."""
+
+    if dist.is_available() and dist.is_initialized():
+        if state and state.is_distributed:
+            dist.barrier()
+        dist.destroy_process_group()
 
 
 def sample(
@@ -265,18 +396,32 @@ def evaluate(
     model: nn.Module,
     loader: DataLoader,
     device: torch.device,
-    use_amp: bool,
+    amp_enabled: bool,
+    amp_dtype: Optional[torch.dtype],
     using_hf_model: bool,
+    distributed: bool,
+    world_size: int,
+    is_main_process: bool,
 ) -> float:
     model.eval()
     total_loss = 0.0
     total_steps = 0
-    progress = tqdm(loader, desc="Validación", leave=False, disable=False)
+    progress = tqdm(
+        loader,
+        desc="Validación",
+        leave=False,
+        disable=not is_main_process,
+    )
     with torch.no_grad():
         for x, y in progress:
             x = x.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
-            with autocast(enabled=use_amp):
+            context = (
+                autocast(device_type=device.type, dtype=amp_dtype)
+                if amp_enabled
+                else nullcontext()
+            )
+            with context:
                 if using_hf_model:
                     outputs = model(input_ids=x, labels=y)
                     loss = outputs.loss
@@ -287,7 +432,14 @@ def evaluate(
                     )
             total_loss += loss.item()
             total_steps += 1
-            progress.set_postfix(loss=loss.item())
+            if is_main_process:
+                progress.set_postfix(loss=loss.item())
+
+    if distributed:
+        stats = torch.tensor([total_loss, float(total_steps)], device=device)
+        dist.all_reduce(stats, op=dist.ReduceOp.SUM)
+        total_loss = stats[0].item()
+        total_steps = int(stats[1].item())
 
     return total_loss / max(1, total_steps)
 
@@ -317,13 +469,11 @@ def save_checkpoint(
 def train(
     model: nn.Module,
     train_loader: DataLoader,
-    val_loader: DataLoader,
+    val_loader: Optional[DataLoader],
     tokenizer: GPT2Tokenizer,
-    device: torch.device,
-    rank: int,
-    distributed: bool,
-    train_sampler: Optional[Sampler],
-    val_sampler: Optional[Sampler],
+    dist_state: DistributedState,
+    train_sampler: Optional[DistributedSampler],
+    val_sampler: Optional[DistributedSampler],
     epochs: int = 5,
     lr: float = 3e-4,
     weight_decay: float = 0.01,
@@ -338,18 +488,28 @@ def train(
     memory_report_interval: int = 100,
     eval_frequency: int = 1,
     using_hf_model: bool = False,
+    amp_enabled: bool = False,
+    amp_dtype: Optional[torch.dtype] = None,
+    scaler_enabled: bool = False,
+    writer: Optional[SummaryWriter] = None,
 ) -> nn.Module:
-    del rank, distributed, train_sampler, val_sampler  # Compatibilidad de firma.
+    device = dist_state.device
+    rank = dist_state.rank
+    world_size = dist_state.world_size
+    distributed = dist_state.is_distributed
+    is_main_process = dist_state.is_main_process
+    prefix = dist_state.formatted_prefix()
 
-    use_amp = device.type == "cuda"
     dataset_size = len(train_loader.dataset)
+    batches_per_epoch = len(train_loader)
     print(
-        f"[Local] Entrenando con {dataset_size} muestras totales en modo mono-GPU.",
+        f"{prefix}Entrenando con {dataset_size} muestras totales. "
+        f"Batches locales/epoch: {batches_per_epoch}.",
         flush=True,
     )
 
     gradient_accumulation_steps = max(1, gradient_accumulation_steps)
-    updates_per_epoch = math.ceil(len(train_loader) / gradient_accumulation_steps)
+    updates_per_epoch = math.ceil(batches_per_epoch / gradient_accumulation_steps)
     total_updates = max(1, epochs * updates_per_epoch)
 
     optimizer = torch.optim.AdamW(
@@ -359,29 +519,42 @@ def train(
     scheduler = get_linear_schedule_with_warmup(
         optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_updates
     )
-    scaler = GradScaler(enabled=use_amp)
+    scaler = GradScaler(enabled=scaler_enabled)
+
+    psutil.cpu_percent(interval=None)  # Inicializa el cálculo de porcentaje de CPU.
+    global_update = 0
 
     for epoch in range(1, epochs + 1):
+        epoch_start = time.time()
         model.train()
         total_loss = 0.0
         optimizer.zero_grad(set_to_none=True)
+        steps_this_epoch = 0
 
         if distributed and train_sampler is not None:
-            # Cada proceso baraja un subconjunto distinto del dataset.
+            # Cada epoch necesita una semilla diferente para evitar que los
+            # procesos lean los mismos lotes. Al modificar el número de nodos
+            # o GPUs hay que asegurarse de que WORLD_SIZE coincida para que
+            # el muestreador reparta el dataset de forma uniforme.
             train_sampler.set_epoch(epoch)
 
         progress = tqdm(
             train_loader,
             desc=f"Epoch {epoch}/{epochs}",
             leave=False,
-            disable=False,
+            disable=not is_main_process,
         )
 
         for step, (x, y) in enumerate(progress, start=1):
             x = x.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
 
-            with autocast(enabled=use_amp):
+            context = (
+                autocast(device_type=device.type, dtype=amp_dtype)
+                if amp_enabled
+                else nullcontext()
+            )
+            with context:
                 if using_hf_model:
                     outputs = model(input_ids=x, labels=y)
                     loss = outputs.loss
@@ -399,56 +572,103 @@ def train(
 
             loss_value = loss.item()
             scaled_loss = loss / gradient_accumulation_steps
-            scaler.scale(scaled_loss).backward()
+            if scaler.is_enabled():
+                scaler.scale(scaled_loss).backward()
+            else:
+                scaled_loss.backward()
 
-            should_step = step % gradient_accumulation_steps == 0 or step == len(train_loader)
+            should_step = (
+                step % gradient_accumulation_steps == 0 or step == batches_per_epoch
+            )
             if should_step:
-                scaler.unscale_(optimizer)
+                if scaler.is_enabled():
+                    scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
-                scaler.step(optimizer)
-                scaler.update()
+                if scaler.is_enabled():
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
                 scheduler.step()
+                global_update += 1
+
+                if writer and is_main_process:
+                    cpu_usage = psutil.cpu_percent(interval=None)
+                    ram_usage = psutil.virtual_memory().percent
+                    writer.add_scalar("Loss/train_step", loss_value, global_update)
+                    writer.add_scalar("System/CPU_percent", cpu_usage, global_update)
+                    writer.add_scalar("System/RAM_percent", ram_usage, global_update)
+                    if device.type == "cuda":
+                        vram = torch.cuda.memory_allocated(device) / (1024 ** 2)
+                        writer.add_scalar("System/GPU_VRAM_MB", vram, global_update)
 
             total_loss += loss_value
+            steps_this_epoch += 1
 
             if log_interval and step % log_interval == 0:
                 progress.set_postfix(loss=loss_value)
+                sync_status = "OK" if distributed else "Local"
                 print(
-                    f"[Epoch {epoch} | Step {step}] Loss actual: {loss_value:.4f}",
+                    f"{prefix}Epoch {epoch} | Step {step} | Loss: {loss_value:.4f} | "
+                    f"Sync={sync_status}",
                     flush=True,
                 )
 
             if memory_report_interval and step % memory_report_interval == 0:
-                log_memory_usage(device, prefix=f"[Epoch {epoch} | Step {step}] ")
+                log_memory_usage(
+                    device,
+                    prefix=f"Epoch {epoch} | Step {step} | ",
+                    state=dist_state,
+                )
 
-        avg_train_loss = total_loss / max(1, len(train_loader))
+        loss_tensor = torch.tensor(
+            [total_loss, float(steps_this_epoch)], device=device
+        )
+        if distributed:
+            # all_reduce garantiza que todos los nodos compartan la misma
+            # estadística de pérdida. Esto confirma que los gradientes fueron
+            # sincronizados correctamente por DDP.
+            dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
+        avg_train_loss = (loss_tensor[0] / loss_tensor[1]).item()
 
         val_loss = None
-        if val_loader is not None and (epoch % max(1, eval_frequency) == 0):
+        if (
+            val_loader is not None
+            and (epoch % max(1, eval_frequency) == 0)
+            and len(val_loader) > 0
+        ):
             val_loss = evaluate(
                 model,
                 val_loader,
                 device,
-                use_amp,
+                amp_enabled,
+                amp_dtype,
                 using_hf_model=using_hf_model,
+                distributed=distributed,
+                world_size=world_size,
+                is_main_process=is_main_process,
             )
 
-        summary = f"Epoch {epoch}/{epochs} | Loss entrenamiento: {avg_train_loss:.4f}"
+        epoch_time = time.time() - epoch_start
+        summary = (
+            f"{prefix}Epoch {epoch}/{epochs} | Loss entrenamiento: {avg_train_loss:.4f}"
+        )
         if val_loss is not None:
             summary += f" | Loss validación: {val_loss:.4f}"
+        summary += f" | Duración epoch: {epoch_time:.1f}s"
         print(summary, flush=True)
 
-        if is_main_process:
-            print(
-                f"Epoch {epoch}/{epochs} | Loss entrenamiento: {avg_train_loss:.4f} | "
-                f"Loss validación: {val_loss:.4f}"
-            )
+        if writer and is_main_process:
+            writer.add_scalar("Loss/train_epoch", avg_train_loss, epoch)
+            if val_loss is not None:
+                writer.add_scalar("Loss/val_epoch", val_loss, epoch)
+            writer.add_scalar("Time/epoch_seconds", epoch_time, epoch)
 
         if is_main_process and checkpoint_freq > 0 and epoch % checkpoint_freq == 0:
             save_checkpoint(checkpoint_dir, epoch, model, optimizer, scheduler, scaler)
 
-        if sample_prompt:
+        if is_main_process and sample_prompt:
             try:
                 base_model = unwrap_distributed_model(model)
                 generated = sample(
@@ -460,18 +680,20 @@ def train(
                     seq_len=seq_len_from_model(base_model),
                     using_hf_model=using_hf_model,
                 )
-                print("=== Ejemplo de texto generado ===")
+                print("=== Ejemplo de texto generado (rank 0) ===")
                 print(generated)
-                print("=================================")
+                print("=========================================")
             except Exception as exc:  # pragma: no cover - logging únicamente
-                print("Error al generar texto de ejemplo:", exc)
+                print("Error al generar texto de ejemplo:", exc, flush=True)
 
-        log_memory_usage(device, prefix=f"[Epoch {epoch} fin] ")
+        log_memory_usage(device, prefix="Fin epoch | ", state=dist_state)
 
         if device.type == "cuda":
             torch.cuda.empty_cache()
 
-    print("[Local] Entrenamiento completado.", flush=True)
+    if distributed:
+        dist.barrier()
+    print(f"{prefix}Entrenamiento completado. Gradientes sincronizados.", flush=True)
 
     return unwrap_distributed_model(model)
 
@@ -643,7 +865,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Entrenamiento GPT-2 español")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=2)
-    parser.add_argument("--seq-len", type=int, default=128)
+    parser.add_argument("--seq-len", type=int, default=DEFAULT_SEQ_LEN)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--warmup-ratio", type=float, default=0.05)
@@ -689,14 +911,33 @@ def parse_args() -> argparse.Namespace:
         help="Modelo de Hugging Face a cargar en modo liviano",
     )
     parser.add_argument(
+        "--precision",
+        choices=["fp32", "fp16", "bf16", "auto"],
+        default="fp32",
+        help=(
+            "Precisión numérica para el modelo. 'fp16' y 'bf16' requieren CUDA. "
+            "El modo 'auto' intenta usar fp16 en GPU y fp32 en CPU."
+        ),
+    )
+    parser.add_argument(
         "--use-custom-model",
         action="store_true",
         help="Utiliza la arquitectura GPT-2 ligera definida en este archivo",
     )
+    parser.add_argument(
+        "--custom-preset",
+        choices=sorted(CUSTOM_MODEL_PRESETS.keys()),
+        default=None,
+        help=(
+            "Selecciona un preset para la arquitectura personalizada (gpt2-small, "
+            "gpt2-medium, gpt2-large). Sobrescribe embed-size, num-heads, num-layers "
+            "y, si no se modificó manualmente, la longitud de secuencia."
+        ),
+    )
     parser.add_argument("--embed-size", type=int, default=512)
     parser.add_argument("--num-layers", type=int, default=6)
     parser.add_argument("--num-heads", type=int, default=8)
-    parser.add_argument("--model-dropout", type=float, default=0.1)
+    parser.add_argument("--model-dropout", type=float, default=DEFAULT_MODEL_DROPOUT)
     parser.add_argument(
         "--gradient-accumulation-steps",
         type=int,
@@ -761,6 +1002,48 @@ def parse_args() -> argparse.Namespace:
         action="store_false",
         help="Desactiva torch.backends.cudnn.benchmark",
     )
+    parser.add_argument(
+        "--backend",
+        choices=["auto", "nccl", "gloo"],
+        default="auto",
+        help="Backend de torch.distributed (auto selecciona NCCL si hay GPU).",
+    )
+    parser.add_argument(
+        "--master-addr",
+        type=str,
+        default=None,
+        help="Dirección IP o hostname del nodo maestro (MASTER_ADDR).",
+    )
+    parser.add_argument(
+        "--master-port",
+        type=str,
+        default=None,
+        help="Puerto TCP para la inicialización distribuida (MASTER_PORT).",
+    )
+    parser.add_argument(
+        "--world-size",
+        type=int,
+        default=None,
+        help="Número total de procesos (nnodes * nproc_per_node).",
+    )
+    parser.add_argument(
+        "--rank",
+        type=int,
+        default=None,
+        help="Rank global del proceso actual (se usa si no se define vía torchrun).",
+    )
+    parser.add_argument(
+        "--node-rank",
+        type=int,
+        default=None,
+        help="Índice del nodo actual dentro del clúster (NODE_RANK).",
+    )
+    parser.add_argument(
+        "--log-dir",
+        type=str,
+        default="runs",
+        help="Directorio donde se guardarán los logs de TensorBoard.",
+    )
     parser.set_defaults(cudnn_benchmark=True)
     return parser.parse_args()
 
@@ -768,8 +1051,64 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    if args.custom_preset and not args.use_custom_model:
+        if os.environ.get("RANK") in (None, "0"):
+            print(
+                "[Aviso] --custom-preset requiere la arquitectura personalizada. "
+                "Activando --use-custom-model automáticamente.",
+                flush=True,
+            )
+        args.use_custom_model = True
+
+    if args.use_custom_model and args.custom_preset:
+        preset = CUSTOM_MODEL_PRESETS[args.custom_preset]
+        args.embed_size = preset["embed_size"]
+        args.num_layers = preset["num_layers"]
+        args.num_heads = preset["num_heads"]
+        if args.model_dropout == DEFAULT_MODEL_DROPOUT and "dropout" in preset:
+            args.model_dropout = float(preset["dropout"])
+        if args.seq_len == DEFAULT_SEQ_LEN and "seq_len" in preset:
+            args.seq_len = preset["seq_len"]
+
     dist_state = setup(args)
     device = dist_state.device
+    distributed = dist_state.is_distributed
+    is_main_process = dist_state.is_main_process
+
+    requested_precision = args.precision.lower()
+    dtype_map = {
+        "fp32": torch.float32,
+        "fp16": torch.float16,
+        "bf16": torch.bfloat16,
+    }
+    if requested_precision == "auto":
+        target_dtype = torch.float16 if device.type == "cuda" else torch.float32
+    else:
+        target_dtype = dtype_map.get(requested_precision, torch.float32)
+
+    if target_dtype in (torch.float16, torch.bfloat16) and device.type != "cuda":
+        if is_main_process:
+            print(
+                f"{dist_state.formatted_prefix()}Precisión '{args.precision}' requiere CUDA. Se usará fp32.",
+                flush=True,
+            )
+        target_dtype = torch.float32
+
+    if target_dtype == torch.bfloat16 and device.type == "cuda":
+        bf16_supported = getattr(torch.cuda, "is_bf16_supported", lambda: False)()
+        if not bf16_supported:
+            if is_main_process:
+                print(
+                    f"{dist_state.formatted_prefix()}La GPU no soporta bf16. Se usará fp32.",
+                    flush=True,
+                )
+            target_dtype = torch.float32
+
+    amp_enabled = device.type == "cuda" and target_dtype in (
+        torch.float16,
+        torch.bfloat16,
+    )
+    scaler_enabled = device.type == "cuda" and target_dtype == torch.float16
 
     base_dir = Path(__file__).resolve().parent
     data_dir = base_dir / "Data"
@@ -811,6 +1150,14 @@ def main() -> None:
     if args.use_custom_model:
         if args.embed_size % args.num_heads != 0:
             raise ValueError("embed-size debe ser divisible entre num-heads")
+        if is_main_process:
+            preset_name = args.custom_preset or "manual"
+            print(
+                f"{dist_state.formatted_prefix()}Config personalizada '{preset_name}': "
+                f"d_model={args.embed_size}, layers={args.num_layers}, heads={args.num_heads}, "
+                f"seq_len={seq_len}, dropout={args.model_dropout}",
+                flush=True,
+            )
         config = Config(
             vocab_size=tokenizer.vocab_size,
             max_seq_length=seq_len,
@@ -820,13 +1167,13 @@ def main() -> None:
             dropout=args.model_dropout,
         )
         model = GPT2(config)
+        model = model.to(dtype=target_dtype)
         using_hf_model = False
     else:
-        dtype = torch.float16 if device.type == "cuda" else torch.float32
         model = AutoModelForCausalLM.from_pretrained(
             args.hf_model,
             low_cpu_mem_usage=True,
-            torch_dtype=dtype,
+            torch_dtype=target_dtype,
         )
         model.resize_token_embeddings(tokenizer.vocab_size)
         if getattr(model.config, "pad_token_id", None) is None:
@@ -836,10 +1183,35 @@ def main() -> None:
             model.gradient_checkpointing_enable()
         using_hf_model = True
 
-    model = model.to(device)
+    model = model.to(device=device, dtype=target_dtype)
 
-    total_params = sum(p.numel() for p in model.parameters())
-    print(f"Parámetros del modelo: {total_params / 1e6:.2f} M", flush=True)
+    if distributed:
+        # El envoltorio DDP replica el modelo en todos los procesos. Al cambiar
+        # el número de GPUs por nodo, torchrun se encargará de ajustar LOCAL_RANK
+        # para cada proceso, por lo que no es necesario modificar este bloque.
+        ddp_kwargs = {"broadcast_buffers": False, "gradient_as_bucket_view": True}
+        if device.type == "cuda":
+            ddp_kwargs["device_ids"] = [device.index]
+            ddp_kwargs["output_device"] = device.index
+        model = DistributedDataParallel(model, **ddp_kwargs)
+
+    total_params = sum(p.numel() for p in unwrap_distributed_model(model).parameters())
+    if is_main_process:
+        print(
+            f"{dist_state.formatted_prefix()}Parámetros del modelo: {total_params / 1e6:.2f} M",
+            flush=True,
+        )
+        precision_label = {
+            torch.float32: "fp32",
+            torch.float16: "fp16",
+            torch.bfloat16: "bf16",
+        }.get(target_dtype, str(target_dtype))
+        print(
+            f"{dist_state.formatted_prefix()}Precisión activa: {precision_label} | "
+            f"Autocast={'ON' if amp_enabled else 'OFF'} | "
+            f"GradScaler={'ON' if scaler_enabled else 'OFF'}",
+            flush=True,
+        )
 
     train_dataset = SpanishCorpus(train_ids, seq_length=seq_len)
     val_dataset = SpanishCorpus(val_ids, seq_length=seq_len)
@@ -860,21 +1232,20 @@ def main() -> None:
     train_sampler: Optional[DistributedSampler]
     val_sampler: Optional[DistributedSampler]
     if distributed:
-        # El DistributedSampler divide el dataset entre los procesos globales para que
-        # cada uno procese un fragmento distinto sin solaparse con el resto. torchrun
-        # proporciona rank/world_size, lo que permite que el sampler calcule la porción
-        # correspondiente en cada nodo.
+        # Cada sampler recibe world_size y rank. Ajustar estos valores cuando
+        # cambie la cantidad de nodos o GPUs para asegurar que cada proceso
+        # procese una porción exclusiva del dataset.
         train_sampler = DistributedSampler(
             train_dataset,
-            num_replicas=world_size,
-            rank=rank,
+            num_replicas=dist_state.world_size,
+            rank=dist_state.rank,
             shuffle=True,
             drop_last=False,
         )
         val_sampler = DistributedSampler(
             val_dataset,
-            num_replicas=world_size,
-            rank=rank,
+            num_replicas=dist_state.world_size,
+            rank=dist_state.rank,
             shuffle=False,
             drop_last=False,
         )
@@ -884,11 +1255,13 @@ def main() -> None:
 
     train_loader = DataLoader(
         train_dataset,
-        shuffle=True,
+        sampler=train_sampler,
+        shuffle=train_sampler is None,
         **loader_kwargs,
     )
     val_loader = DataLoader(
         val_dataset,
+        sampler=val_sampler,
         shuffle=False,
         **loader_kwargs,
     )
@@ -896,24 +1269,29 @@ def main() -> None:
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = bool(args.cudnn_benchmark)
         gpu_name = torch.cuda.get_device_name(device)
-        print(f"Usando GPU {gpu_name} (dispositivo {device})", flush=True)
+        print(
+            f"{dist_state.formatted_prefix()}Usando GPU {gpu_name} (dispositivo {device}).",
+            flush=True,
+        )
     else:
         torch.backends.cudnn.benchmark = False
-        print("Usando CPU", flush=True)
+        print(f"{dist_state.formatted_prefix()}Usando CPU", flush=True)
 
-    log_memory_usage(device, prefix="[Inicio] ")
+    log_memory_usage(device, prefix="Inicio | ", state=dist_state)
 
     sample_prompt = "" if args.disable_sampling else args.sample_prompt
+    writer: Optional[SummaryWriter] = None
+    if is_main_process:
+        writer = SummaryWriter(log_dir=args.log_dir)
+
     trained_model = train(
         model,
         train_loader,
         val_loader,
         tokenizer,
-        device,
-        rank=0,
-        distributed=False,
-        train_sampler=None,
-        val_sampler=None,
+        dist_state,
+        train_sampler,
+        val_sampler,
         epochs=args.epochs,
         lr=args.lr,
         weight_decay=args.weight_decay,
@@ -928,18 +1306,30 @@ def main() -> None:
         memory_report_interval=args.memory_report_interval,
         eval_frequency=args.eval_frequency,
         using_hf_model=using_hf_model,
+        amp_enabled=amp_enabled,
+        amp_dtype=target_dtype if amp_enabled else None,
+        scaler_enabled=scaler_enabled,
+        writer=writer,
     )
 
-    model_path = base_dir / "gpt2_spanish.pth"
-    torch.save(trained_model.state_dict(), model_path)
-    print(f"Modelo guardado en {model_path}", flush=True)
+    if writer is not None:
+        writer.flush()
+        writer.close()
+
+    if is_main_process:
+        model_path = base_dir / "gpt2_spanish.pth"
+        torch.save(trained_model.state_dict(), model_path)
+        print(f"{dist_state.formatted_prefix()}Modelo guardado en {model_path}", flush=True)
+
+    return dist_state
 
 
 if __name__ == "__main__":
     # Ejecutar directamente:
     #   python train_gpt2_spanish.py --prepare
+    _state: Optional[DistributedState] = None
     try:
-        main()
+        _state = main()
     finally:
-        cleanup()
+        cleanup(_state)
 

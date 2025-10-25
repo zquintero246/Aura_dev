@@ -41,7 +41,12 @@ def _gpu_stats() -> List[str]:
     if _NVML_AVAILABLE:
         for index in range(device_count):
             handle = pynvml.nvmlDeviceGetHandleByIndex(index)
-            name = pynvml.nvmlDeviceGetName(handle).decode("utf-8")
+            raw_name = pynvml.nvmlDeviceGetName(handle)
+            # En NVML < 12 el nombre puede regresar bytes y en NVML >= 12 ya es str.
+            if isinstance(raw_name, bytes):
+                name = raw_name.decode("utf-8")
+            else:  # pragma: no cover - rama dependiente de versión
+                name = str(raw_name)
             mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
             util = pynvml.nvmlDeviceGetUtilizationRates(handle)
             messages.append(

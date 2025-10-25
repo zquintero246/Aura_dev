@@ -5,6 +5,7 @@ import math
 import os
 import socket
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
@@ -14,7 +15,7 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
@@ -385,7 +386,8 @@ def evaluate(
     model: nn.Module,
     loader: DataLoader,
     device: torch.device,
-    use_amp: bool,
+    amp_enabled: bool,
+    amp_dtype: Optional[torch.dtype],
     using_hf_model: bool,
     distributed: bool,
     world_size: int,
@@ -404,7 +406,12 @@ def evaluate(
         for x, y in progress:
             x = x.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
-            with autocast(enabled=use_amp):
+            context = (
+                autocast(device_type=device.type, dtype=amp_dtype)
+                if amp_enabled
+                else nullcontext()
+            )
+            with context:
                 if using_hf_model:
                     outputs = model(input_ids=x, labels=y)
                     loss = outputs.loss
@@ -471,6 +478,9 @@ def train(
     memory_report_interval: int = 100,
     eval_frequency: int = 1,
     using_hf_model: bool = False,
+    amp_enabled: bool = False,
+    amp_dtype: Optional[torch.dtype] = None,
+    scaler_enabled: bool = False,
     writer: Optional[SummaryWriter] = None,
 ) -> nn.Module:
     device = dist_state.device
@@ -480,7 +490,6 @@ def train(
     is_main_process = dist_state.is_main_process
     prefix = dist_state.formatted_prefix()
 
-    use_amp = device.type == "cuda"
     dataset_size = len(train_loader.dataset)
     batches_per_epoch = len(train_loader)
     print(
@@ -500,7 +509,10 @@ def train(
     scheduler = get_linear_schedule_with_warmup(
         optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_updates
     )
-    scaler = GradScaler(enabled=use_amp)
+    scaler = GradScaler(enabled=scaler_enabled)
+
+    psutil.cpu_percent(interval=None)  # Inicializa el cálculo de porcentaje de CPU.
+    global_update = 0
 
     psutil.cpu_percent(interval=None)  # Inicializa el cálculo de porcentaje de CPU.
     global_update = 0
@@ -530,7 +542,12 @@ def train(
             x = x.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
 
-            with autocast(enabled=use_amp):
+            context = (
+                autocast(device_type=device.type, dtype=amp_dtype)
+                if amp_enabled
+                else nullcontext()
+            )
+            with context:
                 if using_hf_model:
                     outputs = model(input_ids=x, labels=y)
                     loss = outputs.loss
@@ -548,16 +565,23 @@ def train(
 
             loss_value = loss.item()
             scaled_loss = loss / gradient_accumulation_steps
-            scaler.scale(scaled_loss).backward()
+            if scaler.is_enabled():
+                scaler.scale(scaled_loss).backward()
+            else:
+                scaled_loss.backward()
 
             should_step = (
                 step % gradient_accumulation_steps == 0 or step == batches_per_epoch
             )
             if should_step:
-                scaler.unscale_(optimizer)
+                if scaler.is_enabled():
+                    scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
-                scaler.step(optimizer)
-                scaler.update()
+                if scaler.is_enabled():
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
                 scheduler.step()
                 global_update += 1
@@ -611,7 +635,8 @@ def train(
                 model,
                 val_loader,
                 device,
-                use_amp,
+                amp_enabled,
+                amp_dtype,
                 using_hf_model=using_hf_model,
                 distributed=distributed,
                 world_size=world_size,
@@ -879,6 +904,15 @@ def parse_args() -> argparse.Namespace:
         help="Modelo de Hugging Face a cargar en modo liviano",
     )
     parser.add_argument(
+        "--precision",
+        choices=["fp32", "fp16", "bf16", "auto"],
+        default="fp32",
+        help=(
+            "Precisión numérica para el modelo. 'fp16' y 'bf16' requieren CUDA. "
+            "El modo 'auto' intenta usar fp16 en GPU y fp32 en CPU."
+        ),
+    )
+    parser.add_argument(
         "--use-custom-model",
         action="store_true",
         help="Utiliza la arquitectura GPT-2 ligera definida en este archivo",
@@ -1005,6 +1039,41 @@ def main() -> None:
     distributed = dist_state.is_distributed
     is_main_process = dist_state.is_main_process
 
+    requested_precision = args.precision.lower()
+    dtype_map = {
+        "fp32": torch.float32,
+        "fp16": torch.float16,
+        "bf16": torch.bfloat16,
+    }
+    if requested_precision == "auto":
+        target_dtype = torch.float16 if device.type == "cuda" else torch.float32
+    else:
+        target_dtype = dtype_map.get(requested_precision, torch.float32)
+
+    if target_dtype in (torch.float16, torch.bfloat16) and device.type != "cuda":
+        if is_main_process:
+            print(
+                f"{dist_state.formatted_prefix()}Precisión '{args.precision}' requiere CUDA. Se usará fp32.",
+                flush=True,
+            )
+        target_dtype = torch.float32
+
+    if target_dtype == torch.bfloat16 and device.type == "cuda":
+        bf16_supported = getattr(torch.cuda, "is_bf16_supported", lambda: False)()
+        if not bf16_supported:
+            if is_main_process:
+                print(
+                    f"{dist_state.formatted_prefix()}La GPU no soporta bf16. Se usará fp32.",
+                    flush=True,
+                )
+            target_dtype = torch.float32
+
+    amp_enabled = device.type == "cuda" and target_dtype in (
+        torch.float16,
+        torch.bfloat16,
+    )
+    scaler_enabled = device.type == "cuda" and target_dtype == torch.float16
+
     base_dir = Path(__file__).resolve().parent
     data_dir = base_dir / "Data"
 
@@ -1054,13 +1123,13 @@ def main() -> None:
             dropout=args.model_dropout,
         )
         model = GPT2(config)
+        model = model.to(dtype=target_dtype)
         using_hf_model = False
     else:
-        dtype = torch.float16 if device.type == "cuda" else torch.float32
         model = AutoModelForCausalLM.from_pretrained(
             args.hf_model,
             low_cpu_mem_usage=True,
-            torch_dtype=dtype,
+            torch_dtype=target_dtype,
         )
         model.resize_token_embeddings(tokenizer.vocab_size)
         if getattr(model.config, "pad_token_id", None) is None:
@@ -1070,7 +1139,7 @@ def main() -> None:
             model.gradient_checkpointing_enable()
         using_hf_model = True
 
-    model = model.to(device)
+    model = model.to(device=device, dtype=target_dtype)
 
     if distributed:
         # El envoltorio DDP replica el modelo en todos los procesos. Al cambiar
@@ -1086,6 +1155,17 @@ def main() -> None:
     if is_main_process:
         print(
             f"{dist_state.formatted_prefix()}Parámetros del modelo: {total_params / 1e6:.2f} M",
+            flush=True,
+        )
+        precision_label = {
+            torch.float32: "fp32",
+            torch.float16: "fp16",
+            torch.bfloat16: "bf16",
+        }.get(target_dtype, str(target_dtype))
+        print(
+            f"{dist_state.formatted_prefix()}Precisión activa: {precision_label} | "
+            f"Autocast={'ON' if amp_enabled else 'OFF'} | "
+            f"GradScaler={'ON' if scaler_enabled else 'OFF'}",
             flush=True,
         )
 
@@ -1182,6 +1262,9 @@ def main() -> None:
         memory_report_interval=args.memory_report_interval,
         eval_frequency=args.eval_frequency,
         using_hf_model=using_hf_model,
+        amp_enabled=amp_enabled,
+        amp_dtype=target_dtype if amp_enabled else None,
+        scaler_enabled=scaler_enabled,
         writer=writer,
     )
 

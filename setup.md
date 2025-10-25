@@ -125,6 +125,7 @@ python AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py --prepare     --dataset-name w
      ```
 
    - Repetir análogamente en `node2`, `node3`, `node4` ajustando `NODE_RANK` y `--log-dir`.
+   - Para habilitar media precisión en GPUs compatibles añade `--precision fp16` (o `--precision bf16` en hardware con soporte). Por defecto el entrenamiento usa `fp32` para maximizar la estabilidad y evitar errores de gradientes.
 
 3. **Ejemplo para nodos con múltiples GPUs**
    - Si `node0` y `node1` tienen 2 GPUs, usar `--nproc_per_node=2` y NO establecer `LOCAL_RANK` manualmente (lo hace `torchrun`).
@@ -133,6 +134,7 @@ python AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py --prepare     --dataset-name w
 4. **Logs esperados en consola**
    ```
 [Rank 0/5 | Node node0 | Device cuda:0] Modo Distribuido. Backend=nccl. Sincronizando...
+[Rank 0/5 | Node node0 | Device cuda:0] Precisión activa: fp32 | Autocast=OFF | GradScaler=OFF
 [Rank 3/5 | Node node3 | Device cuda:0] Epoch 1 | Step 200 | Loss: 2.1345 | Sync=OK
 [Rank 0/5 | Node node0 | Device cuda:0] Epoch 1/5 | Loss entrenamiento: 2.0813 | Loss validación: 2.0456 | Duración epoch: 318.4s
 [Rank 0/5 | Node node0 | Device cuda:0] Entrenamiento completado. Gradientes sincronizados.
@@ -183,6 +185,7 @@ python AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py --prepare     --dataset-name w
 | `Address already in use` al arrancar | Puerto 12355 ocupado | Cambiar `MASTER_PORT` en todas las máquinas (`export MASTER_PORT=22345`). |
 | TensorBoard no accesible desde otra PC | Puerto bloqueado o host incorrecto | Ejecutar `tensorboard --host=0.0.0.0`, validar que el navegador apunte a la IP del maestro (`http://192.168.50.20:6006`). |
 | Monitor CLI sin métricas de GPU | Falta NVML o GPU no visible en WSL | Instalar `pynvml` (`pip install nvidia-ml-py`) y confirmar `nvidia-smi`. |
+| `ValueError: Attempting to unscale FP16 gradients` | Uso de FP16 en hardware/driver no estable | Relanzar con `--precision fp32` (valor por defecto) o actualizar controladores CUDA. |
 
 ---
 

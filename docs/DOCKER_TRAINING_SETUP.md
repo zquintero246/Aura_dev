@@ -8,12 +8,12 @@ Esta guía describe cómo preparar y ejecutar el proyecto **GPT-2 en español** 
    - En Windows instala los controladores *Game Ready* o *Studio* más recientes.
    - En Linux usa los repositorios oficiales de NVIDIA (`sudo apt install nvidia-driver-535` o superior) y reinicia.
 2. **Instalar Docker**
-   - **Windows (Docker Desktop):** descarga la versión más reciente desde [docker.com](https://www.docker.com/products/docker-desktop/). Durante la instalación acepta habilitar Hyper-V o WSL2 (Docker Desktop lo necesita internamente) y reinicia.
-   - **Linux:** instala Docker Engine siguiendo la guía de [docs.docker.com](https://docs.docker.com/engine/install/).
+   - Windows: instala **Docker Desktop** y habilita el backend Hyper-V o WSL2 (solo para Docker). Activa la opción *Use the WSL 2 based engine* y reinicia.
+   - Linux: instala Docker Engine siguiendo la guía de [docs.docker.com](https://docs.docker.com/engine/install/).
 3. **Habilitar soporte GPU en Docker**
-   - **Docker Desktop:** abre *Settings → Resources → GPU* y habilita **Enable GPU support**. Verifica que la sección muestre tu GPU como `Detected`. Docker Desktop usará WSL2 internamente, pero **no es necesario abrir WSL ni instalar nada adicional**; todo el entrenamiento se ejecutará dentro de los contenedores.
-   - **Linux:** instala **NVIDIA Container Toolkit** (`sudo apt install nvidia-container-toolkit && sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`).
-4. **Clonar este repositorio** en **la misma ruta** de todas las máquinas, por ejemplo `~/proyectos/gpt2-spanish` o `C:\proyectos\gpt2-spanish`.
+   - Windows: en Docker Desktop ve a *Settings → Resources → GPU* y habilita **Enable GPU support**. Docker Desktop utiliza WSL2 internamente, pero no es necesario trabajar dentro de WSL; todo el entrenamiento se hará en contenedores.
+   - Linux: instala **NVIDIA Container Toolkit** (`sudo apt install nvidia-container-toolkit && sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`).
+4. **Clonar este repositorio** en **la misma ruta** de todas las máquinas, por ejemplo `~/proyectos/gpt2-spanish`.
 5. **Construir la imagen Docker localmente** en cada nodo:
 
    ```bash
@@ -89,9 +89,3 @@ Esto muestra estadísticas cada 5 segundos. Es ideal para detectar desequilibrio
 - Los datasets preparados se guardan en `./Data`. Puedes preprocesarlos en un nodo y compartir la carpeta con el resto para ahorrar tiempo de descarga.
 
 Con esto el entorno queda listo para entrenar un GPT-2 en español desde cero o continuar entrenamientos existentes en un clúster Docker multinodo.
-
-### Tips específicos para Docker Desktop
-
-- En PowerShell puedes exportar las variables de entorno en la misma línea del comando (como en los ejemplos anteriores) o usar `setx` si quieres que queden persistentes.
-- Si ves el error `docker: Error response from daemon: could not select device driver "nvidia"`, revisa que la opción **Use the WSL 2 based engine** esté activada y que tu GPU esté marcada como disponible en *Settings → Resources → GPU*.
-- Para mantener una sesión interactiva dentro del contenedor (útil para depurar o lanzar TensorBoard) ejecuta `docker compose run --rm trainer` sin comando final y obtendrás un shell Bash con acceso al entorno `/workspace`.

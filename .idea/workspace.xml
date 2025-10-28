@@ -5,23 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="64d5d59f-87fe-49b9-a415-8156c53f926c" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/db-forest-config.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/Niggahush_dev.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/Niggahush_dev.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Dockerfile" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/archive/CausalMultiheadAttention.py" beforeDir="false" afterPath="$PROJECT_DIR$/AuraLLM/archive/CausalMultiheadAttention.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/archive/setup_wsl.md" beforeDir="false" afterPath="$PROJECT_DIR$/AuraLLM/train/setup_wsl.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ddp_launch.sh" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docker-compose.yml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/ARQUITECTURA.md" beforeDir="false" afterPath="$PROJECT_DIR$/AuraLLM/archive/ARQUITECTURA.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/DOCKER_TRAINING_SETUP.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/monitor.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/setup.md" beforeDir="false" afterPath="$PROJECT_DIR$/setup.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/test_ddp.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/train_gpt2_spanish.py" beforeDir="false" afterPath="$PROJECT_DIR$/AuraLLM/train/train_aura.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/AuraLLM/archive/ARQUITECTURA.md" beforeDir="false" afterPath="$PROJECT_DIR$/AuraLLM/archive/Arquitectura_modelo.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/AuraLLM/archive/CausalMultiheadAttention.py" beforeDir="false" afterPath="$PROJECT_DIR$/AuraLLM/archive/transformer_architecture.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -55,12 +41,12 @@
     &quot;assignee&quot;: &quot;zquintero246&quot;
   }
 }</component>
-  <component name="GithubPullRequestsUISettings">{
-  &quot;selectedUrlAndAccountId&quot;: {
-    &quot;url&quot;: &quot;https://github.com/zquintero246/Aura_dev.git&quot;,
-    &quot;accountId&quot;: &quot;33da9ec7-943b-4539-afe9-4d522fdfaef6&quot;
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/zquintero246/Aura_dev",
+    "accountId": "693fb070-f485-4561-9ba3-a125cdb1de2f"
   }
-}</component>
+}]]></component>
   <component name="HighlightingSettingsPerFile">
     <setting file="file://$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry/CausalMultiheadAttention.py" root0="SKIP_INSPECTION" />
   </component>
@@ -196,7 +182,7 @@
       <workItem from="1761180846346" duration="1196000" />
       <workItem from="1761182491749" duration="741000" />
       <workItem from="1761183867479" duration="5374000" />
-      <workItem from="1761633455830" duration="1588000" />
+      <workItem from="1761633455830" duration="2244000" />
     </task>
     <servers />
   </component>

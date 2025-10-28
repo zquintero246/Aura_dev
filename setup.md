@@ -131,7 +131,7 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
 
 Clonar datasets (solo una vez en `node0`, luego replicar mediante `rsync` o `scp` si se desea evitar descargas dobles):
 ```bash
-python AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py --prepare     --dataset-name wikipedia --dataset-max-tokens 800000
+python AuraLM/Gpt-2PaperTry/train_aura.py --prepare     --dataset-name wikipedia --dataset-max-tokens 800000
 ```
 
 ## 🔥 Ejecución del entrenamiento distribuido
@@ -151,13 +151,13 @@ python AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py --prepare     --dataset-name w
    - **node0** (`NODE_RANK=0`):
      ```bash
      export NODE_RANK=0
-     torchrun --nnodes=5 --nproc_per_node=1 --node_rank=$NODE_RANK        --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT        AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py        --backend nccl --batch-size 8 --seq-len 128 --log-dir runs/node0
+     torchrun --nnodes=5 --nproc_per_node=1 --node_rank=$NODE_RANK        --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT        AuraLM/Gpt-2PaperTry/train_aura.py        --backend nccl --batch-size 8 --seq-len 128 --log-dir runs/node0
      ```
 
    - **node1** (`NODE_RANK=1`):
      ```bash
      export NODE_RANK=1
-     torchrun --nnodes=5 --nproc_per_node=1 --node_rank=$NODE_RANK        --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT        AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py        --backend nccl --batch-size 8 --seq-len 128 --log-dir runs/node1
+     torchrun --nnodes=5 --nproc_per_node=1 --node_rank=$NODE_RANK        --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT        AuraLM/Gpt-2PaperTry/train_aura.py        --backend nccl --batch-size 8 --seq-len 128 --log-dir runs/node1
      ```
 
    - Repetir análogamente en `node2`, `node3`, `node4` ajustando `NODE_RANK` y `--log-dir`.
@@ -169,7 +169,7 @@ python AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py --prepare     --dataset-name w
 
    1. **Preparar dataset ampliado (solo `node0`)**
       ```bash
-      python AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py --prepare \
+      python AuraLM/Gpt-2PaperTry/train_aura.py --prepare \
         --dataset-name wikipedia --dataset-max-tokens 200000000 --seq-len 1024
       ```
       Replica luego `Data/wikipedia` hacia el resto de nodos con `rsync` o `scp` para evitar descargas repetidas.
@@ -181,7 +181,7 @@ python AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py --prepare     --dataset-name w
         export NODE_RANK=0
         torchrun --nnodes=5 --nproc_per_node=1 --node_rank=$NODE_RANK \
           --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \
-          AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py \
+          AuraLM/Gpt-2PaperTry/train_aura.py \
           --backend nccl --use-custom-model --custom-preset gpt2-medium \
           --seq-len 1024 --batch-size 1 --gradient-accumulation-steps 32 \
           --precision fp16 --lr 2e-4 --weight-decay 0.01 --log-dir runs/gpt2m_node0
@@ -192,7 +192,7 @@ python AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py --prepare     --dataset-name w
         export NODE_RANK=1
         torchrun --nnodes=5 --nproc_per_node=1 --node_rank=$NODE_RANK \
           --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \
-          AuraLM/Gpt-2PaperTry/train_gpt2_spanish.py \
+          AuraLM/Gpt-2PaperTry/train_aura.py \
           --backend nccl --use-custom-model --custom-preset gpt2-medium \
           --seq-len 1024 --batch-size 1 --gradient-accumulation-steps 32 \
           --precision fp16 --lr 2e-4 --weight-decay 0.01 --log-dir runs/gpt2m_node1

@@ -28,9 +28,9 @@ DEFAULT_SEQ_LEN = 128
 DEFAULT_MODEL_DROPOUT = 0.1
 
 CUSTOM_MODEL_PRESETS: Dict[str, Dict[str, int]] = {
-    "gpt2-small": {"embed_size": 768, "num_layers": 12, "num_heads": 12, "seq_len": 1024},
-    "gpt2-medium": {"embed_size": 1024, "num_layers": 24, "num_heads": 16, "seq_len": 1024},
-    "gpt2-large": {"embed_size": 1280, "num_layers": 36, "num_heads": 20, "seq_len": 1024},
+    "aura-small": {"embed_size": 768, "num_layers": 12, "num_heads": 12, "seq_len": 1024},
+    "aura-medium": {"embed_size": 1024, "num_layers": 24, "num_heads": 16, "seq_len": 1024},
+    "aura-large": {"embed_size": 1280, "num_layers": 36, "num_heads": 20, "seq_len": 1024},
 }
 
 
@@ -1326,7 +1326,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     # Ejecutar directamente:
-    #   python train_gpt2_spanish.py --prepare
+    #   python train_aura.py --prepare
     _state: Optional[DistributedState] = None
     try:
         _state = main()

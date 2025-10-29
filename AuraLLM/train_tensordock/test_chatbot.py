@@ -49,13 +49,20 @@ def load_artifacts(model_dir: Path) -> tuple[GPT2, ModelConfig, AutoTokenizer]:
     with config_path.open("r", encoding="utf-8") as f:
         raw_config = json.load(f)
 
+    max_seq_length = raw_config.get("max_seq_length") or raw_config.get("seq_length") or 1024
+    embed_size = raw_config.get("embed_size") or raw_config.get("n_embd")
+    num_layers = raw_config.get("num_layers") or raw_config.get("n_layer")
+    num_heads = raw_config.get("num_heads") or raw_config.get("n_head")
+    if None in {embed_size, num_layers, num_heads}:
+        raise ValueError("El archivo model_config.json no contiene los hiperparámetros esperados")
+
     model_config = ModelConfig(
         vocab_size=raw_config["vocab_size"],
-        max_seq_length=raw_config["max_seq_length"],
-        embed_size=raw_config["embed_size"],
-        num_layers=raw_config["num_layers"],
-        num_heads=raw_config["num_heads"],
-        dropout=raw_config.get("dropout", 0.1),
+        max_seq_length=int(max_seq_length),
+        embed_size=int(embed_size),
+        num_layers=int(num_layers),
+        num_heads=int(num_heads),
+        dropout=float(raw_config.get("dropout", 0.1)),
     )
 
     tokenizer = AutoTokenizer.from_pretrained(model_dir, use_fast=True)

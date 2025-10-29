@@ -56,7 +56,7 @@ Este documento describe los pasos sugeridos para preparar una instancia con GPU 
    ```
    Ajusta `--tokenizer_name_or_path` al nombre o ruta local de tu tokenizador en español. Si aún no cuentas con uno, crea uno con [tokenizers](https://huggingface.co/docs/tokenizers/python/latest/quicktour) antes de iniciar.
 
-4. El script detectará la GPU automáticamente, usará `torch.cuda.amp` para mezclado de precisión y guardará checkpoints periódicamente en el directorio indicado.
+4. El script detectará la GPU automáticamente, usará `torch.cuda.amp` para mezclado de precisión y guardará checkpoints periódicamente en el directorio indicado. Internamente reutiliza la arquitectura `GPT2` y la configuración `Config` definidas en `AuraLLM/train/train_aura.py`, por lo que es coherente con el pipeline de entrenamiento original del repositorio.
 
 ## 4. Reanudar un entrenamiento
 

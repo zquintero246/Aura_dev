@@ -24,7 +24,7 @@ except ImportError as exc:  # pragma: no cover - dependencia externa
         "Se requiere transformers. Instala con `pip install transformers`."
     ) from exc
 
-from AuraLLM.archive.transformer_architecture import (  # type: ignore
+from AuraLLM.train.train_aura import (  # type: ignore
     Config as ModelConfig,
     GPT2,
     SpanishCorpus,

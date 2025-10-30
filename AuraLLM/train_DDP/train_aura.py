@@ -148,15 +148,42 @@ class GPT2(nn.Module):
 class SpanishCorpus(Dataset):
     def __init__(self, data: torch.Tensor, seq_length: int):
         super().__init__()
+        if not isinstance(data, torch.Tensor):
+            raise TypeError("SpanishCorpus requiere un tensor de entrada")
+
+        if seq_length <= 0:
+            raise ValueError("seq_length debe ser positivo")
+
+        if data.numel() <= seq_length:
+            raise ValueError(
+                "El corpus es demasiado pequeño para generar al menos una secuencia"
+            )
+
         self.text = data
-        self.seq_length = seq_length
+        self.seq_length = int(seq_length)
+
+        total_tokens = self.text.numel()
+        # Cada ejemplo consume seq_length tokens de entrada más un token adicional
+        # para las etiquetas desplazadas.
+        self._num_sequences = (total_tokens - 1) // self.seq_length
+        if self._num_sequences <= 0:
+            raise ValueError(
+                "El corpus no contiene suficientes tokens para la longitud de secuencia"
+            )
+
+        self.effective_token_count = self._num_sequences * self.seq_length + 1
 
     def __len__(self) -> int:
-        return len(self.text) - self.seq_length
+        return self._num_sequences
 
     def __getitem__(self, idx: int):
-        x = self.text[idx : idx + self.seq_length]
-        y = self.text[idx + 1 : idx + 1 + self.seq_length]
+        if idx < 0 or idx >= self._num_sequences:
+            raise IndexError("Índice fuera de rango en SpanishCorpus")
+
+        start = idx * self.seq_length
+        end = start + self.seq_length
+        x = self.text[start:end]
+        y = self.text[start + 1 : end + 1]
         return x, y
 
 

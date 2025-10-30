@@ -4,14 +4,16 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import signal
 import sys
 import time
 from contextlib import nullcontext
 from datetime import timedelta
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Tuple
+from typing import BinaryIO, Dict, Iterable, Optional, Tuple
 
+from array import array
 
 if __package__ is None or __package__ == "":  # ejecución directa (python AuraLLM/...)
     PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -25,6 +27,8 @@ from torch.nn.utils import clip_grad_norm_
 from torch.utils.checkpoint import checkpoint_sequential
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
+
+import numpy as np
 
 try:
     from transformers import AutoTokenizer, PreTrainedTokenizerBase, get_linear_schedule_with_warmup
@@ -70,36 +74,53 @@ MODEL_PRESETS.update(
 
 HF_DATASET_PRESETS: Dict[str, Dict[str, object]] = {
     "oscar-es": {
-        "hf_dataset_name": "oscar-corpus/OSCAR-2201",
+        "hf_dataset_name": "oscar",
+        "hf_dataset_config": "unshuffled_deduplicated_es",
+        "hf_dataset_split": "train",
+        "hf_text_field": "text",
+        "hf_trust_remote_code": True,
+    },
+    "cc100-es": {
+        "hf_dataset_name": "cc100",
         "hf_dataset_config": "es",
         "hf_dataset_split": "train",
         "hf_text_field": "text",
+        "hf_trust_remote_code": True,
     },
     "mc4-es": {
         "hf_dataset_name": "mc4",
         "hf_dataset_config": "es",
         "hf_dataset_split": "train",
         "hf_text_field": "text",
+        "hf_trust_remote_code": True,
     },
-    "bsc-robin": {
-        "hf_dataset_name": "BSC-TeMU/robin",
-        "hf_dataset_config": None,
+    "wikimedia-es": {
+        "hf_dataset_name": "wikimedia/wikipedia",
+        "hf_dataset_config": "20231101.es",
         "hf_dataset_split": "train",
         "hf_text_field": "text",
+        "hf_trust_remote_code": True,
     },
-    "bertuit": {
-        "hf_dataset_name": "BSC-TeMU/BERTuit",
-        "hf_dataset_config": None,
+    "wikicorpus-es": {
+        "hf_dataset_name": "PlanTL-GOB-ES/wikicorpus-es",
+        "hf_dataset_config": "2023-06-21",
         "hf_dataset_split": "train",
-        "hf_text_field": None,
+        "hf_text_field": "text",
+        "hf_trust_remote_code": True,
     },
-    "beto-twitter": {
-        "hf_dataset_name": "PlanTL-GOB-ES/beto-twitter",
-        "hf_dataset_config": None,
+    "spanish-ewt": {
+        "hf_dataset_name": "universal_dependencies",
+        "hf_dataset_config": "es_ancora-ud-2.12",
         "hf_dataset_split": "train",
-        "hf_text_field": None,
+        "hf_text_field": "text",
+        "hf_trust_remote_code": True,
     },
 }
+
+
+TOKENIZE_CHUNK_SIZE = 10_000
+TOKEN_CACHE_FILENAME = "dataset_tokens.pt"
+_TOKEN_CACHE_PATH: Optional[Path] = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -113,13 +134,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--hf_dataset_name",
         type=str,
-        default="oscar-corpus/OSCAR-2201",
+        default="oscar",
         help="Dataset de Hugging Face a descargar automáticamente si no existe dataset_path",
     )
     parser.add_argument(
         "--hf_dataset_config",
         type=str,
-        default="es",
+        default="unshuffled_deduplicated_es",
         help="Configuración/subconjunto del dataset de Hugging Face",
     )
     parser.add_argument(
@@ -144,6 +165,11 @@ def parse_args() -> argparse.Namespace:
         "--hf_streaming",
         action="store_true",
         help="Usa streaming de datasets para escribir directamente a disco",
+    )
+    parser.add_argument(
+        "--hf_trust_remote_code",
+        action="store_true",
+        help="Permite ejecutar código remoto del dataset de Hugging Face (requerido para algunos datasets)",
     )
     parser.add_argument(
         "--hf_auth_token",
@@ -434,13 +460,27 @@ def download_hf_corpus(
         flush=True,
     )
 
-    dataset = load_dataset(
-        dataset_name,
-        args.hf_dataset_config or None,
-        split=args.hf_dataset_split,
-        streaming=args.hf_streaming,
-        use_auth_token=args.hf_auth_token,
-    )
+    try:
+        dataset = load_dataset(
+            dataset_name,
+            args.hf_dataset_config or None,
+            split=args.hf_dataset_split,
+            streaming=args.hf_streaming,
+            use_auth_token=args.hf_auth_token,
+            trust_remote_code=args.hf_trust_remote_code,
+        )
+    except Exception as exc:
+        hint = [
+            f"No se pudo descargar el dataset '{dataset_name}'.",
+            "Verifica que el nombre/configuración/split existan y, si es un dataset con acceso restringido,",
+            "proporciona un token con --hf_auth_token o inicia sesión con huggingface-cli login.",
+        ]
+        message = str(exc)
+        if "Dataset scripts are no longer supported" in message or "trust_remote_code" in message:
+            hint.append(
+                "Si el dataset requiere código remoto, añade --hf_trust_remote_code o actívalo en el preset."
+            )
+        raise RuntimeError(" ".join(hint)) from exc
 
     import json as _json
 
@@ -587,15 +627,127 @@ def tokenize_corpus(
     tokenizer: PreTrainedTokenizerBase,
     corpus: Iterable[str],
 ) -> torch.Tensor:
-    all_ids = []
-    for chunk in corpus:
-        ids = tokenizer.encode(chunk, add_special_tokens=False)
-        if not ids:
-            continue
-        all_ids.extend(ids)
-    if not all_ids:
+    env_chunk_size = os.environ.get("AURA_TOKENIZE_CHUNK_SIZE")
+    if env_chunk_size is not None:
+        try:
+            chunk_size = int(env_chunk_size)
+        except ValueError:
+            print(
+                "Valor inválido para AURA_TOKENIZE_CHUNK_SIZE; usando el tamaño por defecto",
+                flush=True,
+            )
+            chunk_size = TOKENIZE_CHUNK_SIZE
+    else:
+        chunk_size = TOKENIZE_CHUNK_SIZE
+    chunk_size = max(chunk_size, 1)
+
+    tmp_path: Optional[Path] = None
+    binary_file: Optional[BinaryIO] = None
+    in_memory_tokens: Optional[array] = None
+    total_tokens = 0
+    total_lines = 0
+    chunk: list[str] = []
+
+    if _TOKEN_CACHE_PATH is not None:
+        tmp_path = _TOKEN_CACHE_PATH.with_suffix(".tmp_tokens.bin")
+        tmp_path.parent.mkdir(parents=True, exist_ok=True)
+        binary_file = tmp_path.open("wb")
+    else:
+        in_memory_tokens = array("q")
+
+    def process_chunk(lines: list[str]) -> None:
+        nonlocal total_lines, total_tokens
+        if not lines:
+            return
+
+        batch_encoding = tokenizer(
+            lines,
+            add_special_tokens=False,
+            return_attention_mask=False,
+            return_token_type_ids=False,
+            padding=False,
+            truncation=False,
+        )
+
+        input_ids = batch_encoding.get("input_ids", [])
+        if isinstance(input_ids, torch.Tensor):
+            sequences = input_ids.tolist()
+        else:
+            sequences = input_ids
+
+        if isinstance(sequences, list) and sequences and isinstance(sequences[0], int):
+            sequences = [sequences]  # type: ignore[assignment]
+
+        chunk_tokens = array("q")
+        for ids in sequences or []:
+            if not ids:
+                continue
+            if isinstance(ids, torch.Tensor):
+                ids = ids.tolist()
+            elif isinstance(ids, int):
+                ids = [ids]
+            chunk_tokens.extend(int(token_id) for token_id in ids)
+
+        produced_tokens = len(chunk_tokens)
+        total_lines += len(lines)
+        total_tokens += produced_tokens
+
+        if produced_tokens == 0:
+            return
+
+        if binary_file is not None:
+            chunk_tokens.tofile(binary_file)
+        else:
+            assert in_memory_tokens is not None
+            in_memory_tokens.extend(chunk_tokens)
+
+        print(
+            f"Procesadas {total_lines:,} líneas... Tokens acumulados: {total_tokens:,}",
+            flush=True,
+        )
+
+    try:
+        for text in corpus:
+            if text is None:
+                continue
+            if not isinstance(text, str):
+                text = str(text)
+            if not text:
+                continue
+            chunk.append(text)
+            if len(chunk) >= chunk_size:
+                process_chunk(chunk)
+                chunk.clear()
+
+        process_chunk(chunk)
+    finally:
+        if binary_file is not None:
+            binary_file.close()
+
+    if total_tokens == 0:
         raise ValueError("El corpus tokenizado quedó vacío")
-    return torch.tensor(all_ids, dtype=torch.long)
+
+    if tmp_path is not None and tmp_path.exists():
+        np_tokens = np.fromfile(tmp_path, dtype=np.int64)
+        token_ids = torch.from_numpy(np_tokens)
+        tmp_path.unlink(missing_ok=True)
+    else:
+        assert in_memory_tokens is not None
+        token_ids = torch.tensor(in_memory_tokens, dtype=torch.long)
+
+    if _TOKEN_CACHE_PATH is not None:
+        _TOKEN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(token_ids, _TOKEN_CACHE_PATH)
+        print(
+            f"Tokens tokenizados guardados en {_TOKEN_CACHE_PATH}",
+            flush=True,
+        )
+
+    print(
+        f"Tokenización completada. Total líneas: {total_lines:,}. Tokens: {token_ids.numel():,}",
+        flush=True,
+    )
+    return token_ids
 
 
 def prepare_datasets(
@@ -616,8 +768,8 @@ def prepare_datasets(
     if train_tokens <= seq_length:
         raise ValueError("validation_split demasiado grande para el tamaño del corpus")
 
-    train_ids = token_ids[:train_tokens].clone()
-    val_ids = token_ids[train_tokens:].clone()
+    train_ids = token_ids[:train_tokens]
+    val_ids = token_ids[train_tokens:]
     return SpanishCorpus(train_ids, seq_length), SpanishCorpus(val_ids, seq_length)
 
 
@@ -767,11 +919,31 @@ def main() -> None:
     apply_model_preset(args, total_mem_gb)
     resolve_training_hparams(args)
 
-    token_ids = tokenize_corpus(tokenizer, read_corpus(dataset_file))
+    global _TOKEN_CACHE_PATH
+    _TOKEN_CACHE_PATH = args.output_dir / TOKEN_CACHE_FILENAME
+
+    if _TOKEN_CACHE_PATH.exists():
+        print(f"Cargando tokens preprocesados desde {_TOKEN_CACHE_PATH}", flush=True)
+        token_ids = torch.load(_TOKEN_CACHE_PATH, map_location="cpu")
+        if not isinstance(token_ids, torch.Tensor):
+            raise ValueError(
+                "El archivo de tokens guardado no contiene un tensor válido. Elimínalo y vuelve a tokenizar."
+            )
+        token_ids = token_ids.long().contiguous()
+        print(
+            f"Tokens cargados: {token_ids.numel():,}. Se omite la tokenización.",
+            flush=True,
+        )
+    else:
+        token_ids = tokenize_corpus(tokenizer, read_corpus(dataset_file))
     train_dataset, val_dataset = prepare_datasets(token_ids, args.seq_length, args.validation_split)
 
-    train_tokens = len(train_dataset.text)
-    val_tokens = len(val_dataset.text) if val_dataset is not None else 0
+    train_tokens = getattr(train_dataset, "effective_token_count", len(train_dataset.text))
+    val_tokens = (
+        getattr(val_dataset, "effective_token_count", len(val_dataset.text))
+        if val_dataset is not None
+        else 0
+    )
     total_tokens = train_tokens + val_tokens
     print(
         f"Tokens disponibles -> entrenamiento: {train_tokens:,} | validación: {val_tokens:,} | total: {total_tokens:,}",

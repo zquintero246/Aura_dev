@@ -90,6 +90,13 @@ HF_DATASET_PRESETS: Dict[str, Dict[str, object]] = {
         "hf_text_field": "text",
         "hf_trust_remote_code": True,
     },
+    "wikimedia-es": {
+        "hf_dataset_name": "wikimedia/wikipedia",
+        "hf_dataset_config": "20231101.es",
+        "hf_dataset_split": "train",
+        "hf_text_field": "text",
+        "hf_trust_remote_code": True,
+    },
     "wikicorpus-es": {
         "hf_dataset_name": "PlanTL-GOB-ES/wikicorpus-es",
         "hf_dataset_config": "2023-06-21",

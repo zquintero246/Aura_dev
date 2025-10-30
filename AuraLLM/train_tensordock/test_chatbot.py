@@ -20,7 +20,7 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise ImportError("Se requiere transformers para ejecutar el chatbot.") from exc
 
-from AuraLLM.train.train_aura import Config as ModelConfig, GPT2
+from AuraLLM.train_DDP.train_aura import Config as ModelConfig, GPT2
 
 
 def parse_args() -> argparse.Namespace:

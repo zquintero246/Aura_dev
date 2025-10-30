@@ -249,7 +249,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--gradient_checkpointing",
         action="store_true",
+        default=None,
         help="Activa checkpointing para capas Transformer (reduce VRAM, aumenta cómputo)",
+    )
+    parser.add_argument(
+        "--no_gradient_checkpointing",
+        action="store_false",
+        dest="gradient_checkpointing",
+        help="Desactiva el checkpointing incluso cuando el preset lo activa automáticamente",
     )
     parser.add_argument(
         "--checkpoint_segments",
@@ -371,6 +378,21 @@ def resolve_training_hparams(args: argparse.Namespace) -> None:
 
     if args.grad_clip is not None and args.grad_clip <= 0:
         args.grad_clip = None
+
+    if args.gradient_checkpointing is None:
+        if preset == "aura-72h-max":
+            args.gradient_checkpointing = True
+            suggested_segments = max(4, args.num_layers // 2)
+            args.checkpoint_segments = suggested_segments
+            print(
+                "Gradient checkpointing activado automáticamente para el preset "
+                "'aura-72h-max' para evitar OOM (usa --no_gradient_checkpointing si deseas "
+                "deshabilitarlo)",
+                flush=True,
+            )
+        else:
+            args.gradient_checkpointing = False
+
     if args.gradient_checkpointing:
         args.checkpoint_segments = max(1, int(args.checkpoint_segments))
 

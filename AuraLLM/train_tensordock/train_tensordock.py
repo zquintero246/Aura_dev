@@ -70,7 +70,13 @@ MODEL_PRESETS.update(
 
 HF_DATASET_PRESETS: Dict[str, Dict[str, object]] = {
     "oscar-es": {
-        "hf_dataset_name": "oscar-corpus/OSCAR-2201",
+        "hf_dataset_name": "oscar",
+        "hf_dataset_config": "unshuffled_deduplicated_es",
+        "hf_dataset_split": "train",
+        "hf_text_field": "text",
+    },
+    "cc100-es": {
+        "hf_dataset_name": "cc100",
         "hf_dataset_config": "es",
         "hf_dataset_split": "train",
         "hf_text_field": "text",
@@ -80,24 +86,19 @@ HF_DATASET_PRESETS: Dict[str, Dict[str, object]] = {
         "hf_dataset_config": "es",
         "hf_dataset_split": "train",
         "hf_text_field": "text",
+        "hf_trust_remote_code": True,
     },
-    "bsc-robin": {
-        "hf_dataset_name": "BSC-TeMU/robin",
-        "hf_dataset_config": None,
+    "wikicorpus-es": {
+        "hf_dataset_name": "PlanTL-GOB-ES/wikicorpus-es",
+        "hf_dataset_config": "2023-06-21",
         "hf_dataset_split": "train",
         "hf_text_field": "text",
     },
-    "bertuit": {
-        "hf_dataset_name": "BSC-TeMU/BERTuit",
-        "hf_dataset_config": None,
+    "spanish-ewt": {
+        "hf_dataset_name": "universal_dependencies",
+        "hf_dataset_config": "es_ancora-ud-2.12",
         "hf_dataset_split": "train",
-        "hf_text_field": None,
-    },
-    "beto-twitter": {
-        "hf_dataset_name": "PlanTL-GOB-ES/beto-twitter",
-        "hf_dataset_config": None,
-        "hf_dataset_split": "train",
-        "hf_text_field": None,
+        "hf_text_field": "text",
     },
 }
 
@@ -113,13 +114,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--hf_dataset_name",
         type=str,
-        default="oscar-corpus/OSCAR-2201",
+        default="oscar",
         help="Dataset de Hugging Face a descargar automáticamente si no existe dataset_path",
     )
     parser.add_argument(
         "--hf_dataset_config",
         type=str,
-        default="es",
+        default="unshuffled_deduplicated_es",
         help="Configuración/subconjunto del dataset de Hugging Face",
     )
     parser.add_argument(
@@ -144,6 +145,11 @@ def parse_args() -> argparse.Namespace:
         "--hf_streaming",
         action="store_true",
         help="Usa streaming de datasets para escribir directamente a disco",
+    )
+    parser.add_argument(
+        "--hf_trust_remote_code",
+        action="store_true",
+        help="Permite ejecutar código remoto del dataset de Hugging Face (requerido para algunos datasets)",
     )
     parser.add_argument(
         "--hf_auth_token",
@@ -434,13 +440,22 @@ def download_hf_corpus(
         flush=True,
     )
 
-    dataset = load_dataset(
-        dataset_name,
-        args.hf_dataset_config or None,
-        split=args.hf_dataset_split,
-        streaming=args.hf_streaming,
-        use_auth_token=args.hf_auth_token,
-    )
+    try:
+        dataset = load_dataset(
+            dataset_name,
+            args.hf_dataset_config or None,
+            split=args.hf_dataset_split,
+            streaming=args.hf_streaming,
+            use_auth_token=args.hf_auth_token,
+            trust_remote_code=args.hf_trust_remote_code,
+        )
+    except Exception as exc:
+        hint = [
+            f"No se pudo descargar el dataset '{dataset_name}'.",
+            "Verifica que el nombre/configuración/split existan y, si es un dataset con acceso restringido,",
+            "proporciona un token con --hf_auth_token o inicia sesión con huggingface-cli login.",
+        ]
+        raise RuntimeError(" ".join(hint)) from exc
 
     import json as _json
 

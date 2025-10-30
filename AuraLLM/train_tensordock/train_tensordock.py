@@ -5,11 +5,18 @@ import argparse
 import json
 import math
 import signal
+import sys
 import time
 from contextlib import nullcontext
 from datetime import timedelta
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple
+
+
+if __package__ is None or __package__ == "":  # ejecución directa (python AuraLLM/...)
+    PROJECT_ROOT = Path(__file__).resolve().parents[2]
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
 
 import torch
 import torch.nn.functional as F
@@ -61,6 +68,39 @@ MODEL_PRESETS.update(
     }
 )
 
+HF_DATASET_PRESETS: Dict[str, Dict[str, object]] = {
+    "oscar-es": {
+        "hf_dataset_name": "oscar-corpus/OSCAR-2201",
+        "hf_dataset_config": "es",
+        "hf_dataset_split": "train",
+        "hf_text_field": "text",
+    },
+    "mc4-es": {
+        "hf_dataset_name": "mc4",
+        "hf_dataset_config": "es",
+        "hf_dataset_split": "train",
+        "hf_text_field": "text",
+    },
+    "bsc-robin": {
+        "hf_dataset_name": "BSC-TeMU/robin",
+        "hf_dataset_config": None,
+        "hf_dataset_split": "train",
+        "hf_text_field": "text",
+    },
+    "bertuit": {
+        "hf_dataset_name": "BSC-TeMU/BERTuit",
+        "hf_dataset_config": None,
+        "hf_dataset_split": "train",
+        "hf_text_field": None,
+    },
+    "beto-twitter": {
+        "hf_dataset_name": "PlanTL-GOB-ES/beto-twitter",
+        "hf_dataset_config": None,
+        "hf_dataset_split": "train",
+        "hf_text_field": None,
+    },
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Entrenamiento desde cero de Aura en TensorDock")
@@ -110,6 +150,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="Token de autenticación para datasets privados de Hugging Face",
+    )
+    parser.add_argument(
+        "--hf_dataset_preset",
+        type=str,
+        choices=sorted(HF_DATASET_PRESETS.keys()),
+        help="Atajo para rellenar los parámetros del dataset de Hugging Face",
     )
     parser.add_argument(
         "--skip_auto_download",
@@ -191,7 +237,17 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="Norma máxima para clipping de gradiente (None desactiva)",
     )
-    return parser.parse_args()
+
+    args = parser.parse_args()
+
+    if args.hf_dataset_preset:
+        preset = HF_DATASET_PRESETS[args.hf_dataset_preset]
+        for key, value in preset.items():
+            setattr(args, key, value)
+
+    args.output_dir = args.output_dir.expanduser().resolve()
+
+    return args
 
 
 def set_seed(seed: int) -> None:
@@ -334,7 +390,7 @@ def extract_text_field(example: Dict[str, object], field: Optional[str]) -> Opti
             value = " ".join(str(v) for v in value if v)
         return str(value).strip()
 
-    for candidate in ("text", "content", "body", "sentence"):
+    for candidate in ("text", "content", "body", "sentence", "tweet", "tweet_text"):
         if candidate in example and example[candidate]:
             value = example[candidate]
             if isinstance(value, (list, tuple)):
@@ -368,11 +424,13 @@ def download_hf_corpus(
         output_dir = target
         output_dir.mkdir(parents=True, exist_ok=True)
         sanitized = dataset_name.replace("/", "_")
-        output_file = output_dir / f"{sanitized}-{args.hf_dataset_config}-{args.hf_dataset_split}.jsonl"
+        config_suffix = args.hf_dataset_config or "default"
+        output_file = output_dir / f"{sanitized}-{config_suffix}-{args.hf_dataset_split}.jsonl"
 
+    config_display = args.hf_dataset_config or "-"
     print(
         "Descargando dataset desde Hugging Face: "
-        f"{dataset_name} ({args.hf_dataset_config}/{args.hf_dataset_split})",
+        f"{dataset_name} ({config_display}/{args.hf_dataset_split})",
         flush=True,
     )
 

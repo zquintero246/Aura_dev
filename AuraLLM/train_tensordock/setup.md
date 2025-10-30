@@ -30,11 +30,19 @@ Este documento describe cómo preparar TensorDock y ejecutar un entrenamiento de
 El script puede **descargar automáticamente** el corpus cuando `--dataset_path` no exista. Por defecto usa `oscar-corpus/OSCAR-2201` (configuración `es`, split `train`) y escribe un `.jsonl` en `/datasets/spanish_corpus/`.
 
 1. No hagas nada si deseas el preset por defecto: al ejecutar el entrenamiento por primera vez verás un mensaje `Descargando dataset desde Hugging Face...` y el archivo quedará en `SPANISH_CORPUS/oscar-corpus_OSCAR-2201-es-train.jsonl`.
-2. Si prefieres otro dataset, ajusta las banderas:
+2. Si prefieres otro dataset, puedes usar el atajo `--hf_dataset_preset` para rellenar todo de una vez. Presets disponibles:
+   - `oscar-es` (Common Crawl filtrado en español).
+   - `mc4-es` (mC4 en español).
+   - `bsc-robin` (corpus mixto curado por el BSC).
+   - `bertuit` (tweets en español empleados en el proyecto BERTuit).
+   - `beto-twitter` (colección de tweets en español usada por BETO-Twitter).
+
+   También puedes ajustar manualmente las banderas si necesitas un dataset diferente:
    - `--hf_dataset_name nombre/del-dataset`
    - `--hf_dataset_config` (por ejemplo `es-clean`)
    - `--hf_dataset_split` (`train`, `validation`, etc.)
    - `--hf_text_field` si el campo no se llama `text`.
+     > Los presets `bertuit` y `beto-twitter` apuntan a corpus de tweets; si el dataset expone otro nombre de campo (por ejemplo `tweet`), ajusta esta bandera.
    - `--hf_download_limit` para descargar solo los primeros *N* ejemplos (útil para pruebas rápidas).
    - Añade `--hf_streaming` para escribir directamente desde streaming, reduciendo uso de disco temporal.
 3. ¿Ya tienes un corpus descargado? Copia tus ficheros `.txt` o `.jsonl` al directorio indicado y el script los detectará automáticamente sin volver a descargar nada.

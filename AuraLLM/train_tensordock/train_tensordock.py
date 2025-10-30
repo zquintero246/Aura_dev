@@ -5,12 +5,12 @@ import argparse
 import json
 import math
 import signal
-import sys
 import time
 from contextlib import nullcontext
 from datetime import timedelta
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple
+import sys
 
 
 if __package__ is None or __package__ == "":  # ejecución directa (python AuraLLM/...)
@@ -33,7 +33,7 @@ except ImportError as exc:  # pragma: no cover - dependencia externa
         "Se requiere transformers. Instala con `pip install transformers`."
     ) from exc
 
-from AuraLLM.train.train_aura import (  # type: ignore
+from AuraLLM.train_DDP.train_aura import (
     Config as ModelConfig,
     CUSTOM_MODEL_PRESETS,
     GPT2,
@@ -55,14 +55,14 @@ MODEL_PRESETS.update(
     {
         "aura-72h-extended": {
             "embed_size": 2048,
-            "num_layers": 28,
-            "num_heads": 16,
+            "num_layers": 32,
+            "num_heads": 20,
             "seq_length": 2048,
         },
         "aura-72h-max": {
             "embed_size": 2560,
-            "num_layers": 32,
-            "num_heads": 20,
+            "num_layers": 36,
+            "num_heads": 24,
             "seq_length": 2048,
         },
     }

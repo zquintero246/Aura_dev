@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 from typing import List
 
-
 if __package__ is None or __package__ == "":
     PROJECT_ROOT = Path(__file__).resolve().parents[2]
     if str(PROJECT_ROOT) not in sys.path:
@@ -20,7 +19,7 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise ImportError("Se requiere transformers para ejecutar el chatbot.") from exc
 
-from AuraLLM.train.train_aura import Config as ModelConfig, GPT2
+from AuraLLM.train_DDP.train_aura import Config as ModelConfig, GPT2
 
 
 def parse_args() -> argparse.Namespace:

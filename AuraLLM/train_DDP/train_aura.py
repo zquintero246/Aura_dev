@@ -836,7 +836,7 @@ def prepare_hf_dataset(
 
     if max_train < train_min:
         raise RuntimeError(
-            "No hay suficientes tokens para satisfacer los tamaños mínimos de train/val."
+            "No hay suficientes tokens para satisfacer los tamaños mínimos de train_DDP/val."
         )
 
     desired_train = int(total_tokens * (1 - val_ratio))
@@ -1124,7 +1124,7 @@ def main() -> None:
     if dataset_config is None:
         dataset_config = "es" if args.dataset_name == "oscar" else "20231101.es"
     if dataset_split is None:
-        dataset_split = "train[:0.5%]" if args.dataset_name == "oscar" else "train[:1%]"
+        dataset_split = "train_DDP[:0.5%]" if args.dataset_name == "oscar" else "train_DDP[:1%]"
 
     if args.prepare or args.force_download or not (dataset_dir / "train_ids.pt").exists():
         if is_main_process:

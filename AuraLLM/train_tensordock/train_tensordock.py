@@ -11,7 +11,7 @@ import time
 from contextlib import nullcontext
 from datetime import timedelta
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Tuple
+from typing import BinaryIO, Dict, Iterable, Optional, Tuple
 
 from array import array
 
@@ -27,6 +27,8 @@ from torch.nn.utils import clip_grad_norm_
 from torch.utils.checkpoint import checkpoint_sequential
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
+
+import numpy as np
 
 try:
     from transformers import AutoTokenizer, PreTrainedTokenizerBase, get_linear_schedule_with_warmup
@@ -639,12 +641,22 @@ def tokenize_corpus(
         chunk_size = TOKENIZE_CHUNK_SIZE
     chunk_size = max(chunk_size, 1)
 
-    token_buffer = array("I")
-    chunk: list[str] = []
+    tmp_path: Optional[Path] = None
+    binary_file: Optional[BinaryIO] = None
+    in_memory_tokens: Optional[array] = None
+    total_tokens = 0
     total_lines = 0
+    chunk: list[str] = []
+
+    if _TOKEN_CACHE_PATH is not None:
+        tmp_path = _TOKEN_CACHE_PATH.with_suffix(".tmp_tokens.bin")
+        tmp_path.parent.mkdir(parents=True, exist_ok=True)
+        binary_file = tmp_path.open("wb")
+    else:
+        in_memory_tokens = array("q")
 
     def process_chunk(lines: list[str]) -> None:
-        nonlocal total_lines
+        nonlocal total_lines, total_tokens
         if not lines:
             return
 
@@ -666,7 +678,7 @@ def tokenize_corpus(
         if isinstance(sequences, list) and sequences and isinstance(sequences[0], int):
             sequences = [sequences]  # type: ignore[assignment]
 
-        produced_tokens = 0
+        chunk_tokens = array("q")
         for ids in sequences or []:
             if not ids:
                 continue
@@ -674,36 +686,54 @@ def tokenize_corpus(
                 ids = ids.tolist()
             elif isinstance(ids, int):
                 ids = [ids]
-            new_tokens = [int(token_id) for token_id in ids]
-            token_buffer.extend(new_tokens)
-            produced_tokens += len(new_tokens)
+            chunk_tokens.extend(int(token_id) for token_id in ids)
 
+        produced_tokens = len(chunk_tokens)
         total_lines += len(lines)
+        total_tokens += produced_tokens
 
-        if produced_tokens:
-            print(
-                f"Procesadas {total_lines:,} líneas... Tokens acumulados: {len(token_buffer):,}",
-                flush=True,
-            )
+        if produced_tokens == 0:
+            return
 
-    for text in corpus:
-        if text is None:
-            continue
-        if not isinstance(text, str):
-            text = str(text)
-        if not text:
-            continue
-        chunk.append(text)
-        if len(chunk) >= chunk_size:
-            process_chunk(chunk)
-            chunk.clear()
+        if binary_file is not None:
+            chunk_tokens.tofile(binary_file)
+        else:
+            assert in_memory_tokens is not None
+            in_memory_tokens.extend(chunk_tokens)
 
-    process_chunk(chunk)
+        print(
+            f"Procesadas {total_lines:,} líneas... Tokens acumulados: {total_tokens:,}",
+            flush=True,
+        )
 
-    if not token_buffer:
+    try:
+        for text in corpus:
+            if text is None:
+                continue
+            if not isinstance(text, str):
+                text = str(text)
+            if not text:
+                continue
+            chunk.append(text)
+            if len(chunk) >= chunk_size:
+                process_chunk(chunk)
+                chunk.clear()
+
+        process_chunk(chunk)
+    finally:
+        if binary_file is not None:
+            binary_file.close()
+
+    if total_tokens == 0:
         raise ValueError("El corpus tokenizado quedó vacío")
 
-    token_ids = torch.tensor(token_buffer, dtype=torch.long)
+    if tmp_path is not None and tmp_path.exists():
+        np_tokens = np.fromfile(tmp_path, dtype=np.int64)
+        token_ids = torch.from_numpy(np_tokens)
+        tmp_path.unlink(missing_ok=True)
+    else:
+        assert in_memory_tokens is not None
+        token_ids = torch.tensor(in_memory_tokens, dtype=torch.long)
 
     if _TOKEN_CACHE_PATH is not None:
         _TOKEN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -738,8 +768,8 @@ def prepare_datasets(
     if train_tokens <= seq_length:
         raise ValueError("validation_split demasiado grande para el tamaño del corpus")
 
-    train_ids = token_ids[:train_tokens].clone()
-    val_ids = token_ids[train_tokens:].clone()
+    train_ids = token_ids[:train_tokens]
+    val_ids = token_ids[train_tokens:]
     return SpanishCorpus(train_ids, seq_length), SpanishCorpus(val_ids, seq_length)
 
 

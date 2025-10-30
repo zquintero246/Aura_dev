@@ -74,12 +74,14 @@ HF_DATASET_PRESETS: Dict[str, Dict[str, object]] = {
         "hf_dataset_config": "unshuffled_deduplicated_es",
         "hf_dataset_split": "train",
         "hf_text_field": "text",
+        "hf_trust_remote_code": True,
     },
     "cc100-es": {
         "hf_dataset_name": "cc100",
         "hf_dataset_config": "es",
         "hf_dataset_split": "train",
         "hf_text_field": "text",
+        "hf_trust_remote_code": True,
     },
     "mc4-es": {
         "hf_dataset_name": "mc4",
@@ -93,12 +95,14 @@ HF_DATASET_PRESETS: Dict[str, Dict[str, object]] = {
         "hf_dataset_config": "2023-06-21",
         "hf_dataset_split": "train",
         "hf_text_field": "text",
+        "hf_trust_remote_code": True,
     },
     "spanish-ewt": {
         "hf_dataset_name": "universal_dependencies",
         "hf_dataset_config": "es_ancora-ud-2.12",
         "hf_dataset_split": "train",
         "hf_text_field": "text",
+        "hf_trust_remote_code": True,
     },
 }
 
@@ -455,6 +459,11 @@ def download_hf_corpus(
             "Verifica que el nombre/configuración/split existan y, si es un dataset con acceso restringido,",
             "proporciona un token con --hf_auth_token o inicia sesión con huggingface-cli login.",
         ]
+        message = str(exc)
+        if "Dataset scripts are no longer supported" in message or "trust_remote_code" in message:
+            hint.append(
+                "Si el dataset requiere código remoto, añade --hf_trust_remote_code o actívalo en el preset."
+            )
         raise RuntimeError(" ".join(hint)) from exc
 
     import json as _json

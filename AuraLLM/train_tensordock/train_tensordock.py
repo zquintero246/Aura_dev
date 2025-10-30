@@ -119,7 +119,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dataset_path",
         type=Path,
-        default=Path("/datasets/spanish_corpus"),
+        default=Path("AuraLLM/datasets/spanish_corpus"),
         help="Ruta al corpus o directorio con .txt/.jsonl (por defecto /datasets/spanish_corpus)",
     )
     parser.add_argument(

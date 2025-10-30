@@ -6,7 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="64d5d59f-87fe-49b9-a415-8156c53f926c" name="Changes" comment="archivo duplicado">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/AuraLLM/train/__init__.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/AuraLLM/train_tensordock/train_tensordock.py" beforeDir="false" afterPath="$PROJECT_DIR$/AuraLLM/train_tensordock/train_tensordock.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -108,7 +107,7 @@
       <window_info anchor="bottom" id="Version Control" order="0" weight="0.32994187" />
       <window_info anchor="bottom" id="Problems" order="1" />
       <window_info anchor="bottom" id="Problems View" order="2" weight="0.32994187" />
-      <window_info active="true" anchor="bottom" id="Terminal" order="3" visible="true" weight="0.32994187" />
+      <window_info active="true" anchor="bottom" id="Terminal" order="3" visible="true" weight="0.24854651" />
       <window_info anchor="bottom" id="Services" order="4" />
       <window_info anchor="bottom" id="Python Packages" order="5" weight="0.32994187" />
       <window_info anchor="bottom" id="Python Console" order="6" weight="0.1" />
@@ -187,7 +186,7 @@
       <workItem from="1761183867479" duration="5374000" />
       <workItem from="1761633455830" duration="3355000" />
       <workItem from="1761659437446" duration="4783000" />
-      <workItem from="1761774148034" duration="11998000" />
+      <workItem from="1761774148034" duration="14932000" />
     </task>
     <task id="LOCAL-00001" summary="Nombres lolololol">
       <option name="closed" value="true" />
@@ -221,7 +220,15 @@
       <option name="project" value="LOCAL" />
       <updated>1761790598067</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="archivo duplicado">
+      <option name="closed" value="true" />
+      <created>1761794207222</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1761794207222</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

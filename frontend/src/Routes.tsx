@@ -3,19 +3,27 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 
 import HomePage from './pages/Home';
 import Register from './pages/Authentication/Register';
-import VeriVerificationCode from './pages/Authentication/VerificationCode';
+import VerifyEmailPage from './pages/Authentication/VerifyEmailPage';
 import Login from './pages/Authentication/Login';
 import ChatHome from './pages/Chat/AppLayout';
+import RequireVerified from './guards/RequireVerified';
+import RedirectIfVerified from './guards/RedirectIfVerified';
+import Profile from './pages/Account/Profile';
+import Settings from './pages/Account/Settings';
+import ChangePassword from './pages/Account/ChangePassword';
 
 const AppRoutes = () => {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/verify-code" element={<VeriVerificationCode />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/chat" element={<ChatHome />} />
+        <Route path="/" element={<RedirectIfVerified><HomePage /></RedirectIfVerified>} />
+        <Route path="/register" element={<RedirectIfVerified><Register /></RedirectIfVerified>} />
+        <Route path="/verify-email" element={<RedirectIfVerified><VerifyEmailPage /></RedirectIfVerified>} />
+        <Route path="/login" element={<RedirectIfVerified><Login /></RedirectIfVerified>} />
+        <Route path="/chat" element={<RequireVerified><ChatHome /></RequireVerified>} />
+        <Route path="/profile" element={<RequireVerified><Profile /></RequireVerified>} />
+        <Route path="/settings" element={<RequireVerified><Settings /></RequireVerified>} />
+        <Route path="/change-password" element={<RequireVerified><ChangePassword /></RequireVerified>} />
       </Routes>
     </Router>
   );

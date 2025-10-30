@@ -1,10 +1,12 @@
 // AppLayout.tsx
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import IconRail from './IconRail';
 import ConversationsPanel, { Conversation } from './ConversationsPanel';
 import GroupsPanel, { Group } from './GroupsPanel';
 import MainPanel from './MainPanel';
 import ChatPanel from './ChatPanel';
+import { me, logout, User } from '../../lib/auth';
+import { useNavigate } from 'react-router-dom';
 
 /** Claves del rail */
 type SectionKey = 'chats' | 'group' | 'project' | 'telemetry';
@@ -21,6 +23,7 @@ const RAIL_W = 72; // ancho del IconRail (rojo)
 const SIDE_W = 320; // ancho del panel verde (contextual)
 
 export default function AppLayout() {
+  const navigate = useNavigate();
   /** 1) Rail activo (VERDE cambia con esto) */
   const [activeRail, setActiveRail] = useState<SectionKey>('chats');
 
@@ -71,6 +74,24 @@ export default function AppLayout() {
       (pinned.find((c) => c.id === selection.id) || recent.find((c) => c.id === selection.id))) ||
     null;
 
+  // --- User session data ---
+  const [user, setUser] = useState<User | null>(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await me();
+        setUser(res?.user || null);
+      } catch {
+        setUser(null);
+      }
+    })();
+  }, []);
+
+  const handleLogout = async () => {
+    try { await logout(); } catch {}
+    navigate('/login');
+  };
+
   return (
     <div className="min-h-screen bg-[#070a14] text-white">
       {/* ----------- ROJO: IconRail ----------- */}
@@ -78,8 +99,12 @@ export default function AppLayout() {
         active={activeRail}
         onSelect={(key) => setActiveRail(key)}
         onToggleTheme={() => {}}
-        avatarUrl="/images/avatar_demo.jpg"
-        userName="Santiago Arias"
+        avatarUrl={user?.avatar_url || undefined}
+        userName={user?.name || 'Tu perfil'}
+        onProfile={() => navigate('/profile')}
+        onSettings={() => navigate('/settings')}
+        onChangePassword={() => navigate('/change-password')}
+        onLogout={handleLogout}
       />
 
       {/* ----------- VERDE: Panel contextual por opción ----------- */}

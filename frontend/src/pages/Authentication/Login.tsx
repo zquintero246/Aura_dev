@@ -4,6 +4,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import Button from './components/ui/Button';
 import EditText from './components/ui/EditText';
 import Particles from './components/ui/Particles';
+import { login as apiLogin } from '../../lib/auth';
+import { socialLogin, SocialAuthPayload } from '../../lib/social';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -12,17 +14,63 @@ const Login = () => {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
+  // NOTE: The postMessage listener is managed inside socialLogin().
+  // We only handle its returned payload here to store token and navigate.
+
   const handleLogin = async () => {
-    setIsLoading(true);
-    // simula login
-    await new Promise((r) => setTimeout(r, 1200));
-    setIsLoading(false);
-    // navega a tu dashboard (ajusta la ruta)
-    navigate('/chat');
+    try {
+      setIsLoading(true);
+      const { user } = await apiLogin(email, password);
+      setIsLoading(false);
+      if (!user.email_verified_at) {
+        navigate('/verify-email');
+      } else {
+        navigate('/chat');
+      }
+    } catch (err: any) {
+      setIsLoading(false);
+      alert(err?.response?.data?.message || 'Error al iniciar sesión');
+    }
   };
 
-  const handleGithubLogin = () => {};
-  const handleGoogleLogin = () => {};
+  const handleGithubLogin = async () => {
+    const payload: SocialAuthPayload | null = await socialLogin('github');
+    if (payload && payload.status === 'ok' && payload.action === 'auth-complete') {
+      // Guardar token si vino en el payload (ajusta a tu store real)
+      if (payload.token) {
+        try { localStorage.setItem('auth_token', String(payload.token)); } catch {}
+      } else {
+        // TODO: usar cookie de sesión / Sanctum si aplica
+      }
+      const target = payload.redirect || '/verify-email';
+      if (/^https?:\/\//i.test(target)) {
+        window.location.assign(target);
+      } else {
+        navigate(target);
+      }
+    } else {
+      // Solo alert si NO llegó postMessage válido y el popup se cerró
+      alert('No se pudo completar el inicio con GitHub.');
+    }
+  };
+  const handleGoogleLogin = async () => {
+    const payload: SocialAuthPayload | null = await socialLogin('google');
+    if (payload && payload.status === 'ok' && payload.action === 'auth-complete') {
+      if (payload.token) {
+        try { localStorage.setItem('auth_token', String(payload.token)); } catch {}
+      } else {
+        // TODO: usar cookie de sesión / Sanctum si aplica
+      }
+      const target = payload.redirect || '/verify-email';
+      if (/^https?:\/\//i.test(target)) {
+        window.location.assign(target);
+      } else {
+        navigate(target);
+      }
+    } else {
+      alert('No se pudo completar el inicio con Google.');
+    }
+  };
 
   return (
     <>

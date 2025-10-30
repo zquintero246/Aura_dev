@@ -41,6 +41,11 @@ class SocialiteController extends Controller
              abort(404, "Socialite provider {$provider} not supported or configured.");
         }
 
+        // Mark this flow as popup-enabled so the callback can return an HTML that postMessages + closes.
+        // If a user hits the callback without this session flag (e.g., opening the URL directly),
+        // the callback will fallback to a server-side redirect to `${FRONTEND_URL}/verify-email`.
+        session(['oauth_with_popup' => true]);
+
         // Redirect to the social provider's authorization page
         return Socialite::driver($provider)->redirect();
     }
@@ -70,8 +75,62 @@ class SocialiteController extends Controller
 
         // Log the user into the application
         Auth::login($user, true);
+        // Trigger email verification if needed (uses native Laravel notifications)
+        // The User model implements MustVerifyEmail, so this will send the standard VerifyEmail notification.
+        try {
+            if (! $user->hasVerifiedEmail()) {
+                $user->sendEmailVerificationNotification();
+            }
+        } catch (\Throwable $e) {
+            // Log only; do NOT break the OAuth flow
+            \Log::warning('Email verification notification failed', [
+                'user_id' => $user->id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
-        return redirect()->intended('/admin/dashboard'); // Add your dashboard link
+        // Generate an access token for the SPA if applicable (Sanctum/JWT/etc.).
+        // If not implemented in this project, keep it null and use session cookie.
+        $token = null; // TODO: issue JWT or Sanctum token if available
+
+        // Popup flow response: minimal HTML to notify opener and close the window.
+        // Fallback: if no opener (or blocked), redirect to `${FRONTEND_URL}/verify-email`.
+        $frontend = rtrim((string) env('FRONTEND_URL', 'http://127.0.0.1:4028'), '/');
+        $redirectUrl = $frontend . '/verify-email';
+
+        // If this flow is not marked as popup, perform a server-side redirect to the frontend.
+        $withPopup = (bool) session()->pull('oauth_with_popup', false);
+        if (! $withPopup) {
+            return redirect()->away($redirectUrl);
+        }
+
+        // Popup HTML: send payload (including token/redirect) via postMessage, then close.
+        // If blocked, window.location fallback occurs on the caller via the SPA.
+        $html = response()->make(
+            '<!DOCTYPE html>
+            <html><body>
+            <script>
+              (function() {
+                const payload = {
+                  status: "ok",
+                  action: "auth-complete",
+                  redirect: ' . json_encode($redirectUrl) . ',
+                  token: ' . json_encode($token) . '
+                };
+                if (window.opener && !window.opener.closed) {
+                  window.opener.postMessage(payload, "*");
+                }
+                window.close();
+              })();
+            </script>
+            </body></html>',
+            200,
+            ['Content-Type' => 'text/html']
+        );
+
+        return $html;
+
+        return response($html, 200)->header('Content-Type', 'text/html; charset=utf-8');
     }
 
     /**
@@ -101,9 +160,10 @@ class SocialiteController extends Controller
 
         if ($user) {
             // User exists by email, link the social ID to the existing account.
-            // DO NOT assign any role as per requirement.
+            // Also store avatar URL if provided (without overwriting an existing one unless empty).
             $user->update([
                 $providerIdField => $socialiteUser->getId(),
+                'avatar_url' => $socialiteUser->getAvatar() ?: $user->avatar_url,
             ]);
             return $user;
         }
@@ -115,8 +175,8 @@ class SocialiteController extends Controller
             // Create a random password since social login is primary
             'password' => bcrypt(Str::random(24)),
             $providerIdField => $socialiteUser->getId(),
-            // You may need to verify the email address here based on provider data
-            'email_verified_at' => now(),
+            'avatar_url' => $socialiteUser->getAvatar(),
+            // Do NOT mark as verified here. Laravel will send a signed verification email.
         ]);
 
         // SPATIE ROLE LOGIC: Assign 'subscriber' role only on first creation

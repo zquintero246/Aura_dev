@@ -6,22 +6,50 @@ import EditText from './components/ui/EditText';
 import Squares from './components/ui/Squares';
 import Particles from './components/ui/Particles';
 import { useNavigate } from 'react-router-dom';
+import { register as apiRegister } from '../../lib/auth';
+import { socialLogin } from '../../lib/social';
 
 const Register = () => {
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [password2, setPassword2] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
 
-  const handleEmailVerification = async () => {
-    setIsLoading(true);
-    await new Promise((r) => setTimeout(r, 1000));
-    setIsLoading(false);
+  const handleRegister = async () => {
+    try {
+      setIsLoading(true);
+      await apiRegister(name, email, password, password2);
+      setIsLoading(false);
+      navigate('/verify-email');
+    } catch (err: any) {
+      setIsLoading(false);
+      const errors = err?.response?.data?.errors;
+      const msg = err?.response?.data?.message;
+      alert(errors ? JSON.stringify(errors) : msg || 'Error al registrarse');
+    }
   };
 
-  const handleGithubLogin = () => {};
-  const handleGoogleLogin = () => {};
+  const handleGithubLogin = async () => {
+    const user = await socialLogin('github');
+    if (user) {
+      if (!user.email_verified_at) navigate('/verify-email');
+      else navigate('/chat');
+    } else {
+      alert('No se pudo completar el registro con GitHub.');
+    }
+  };
+  const handleGoogleLogin = async () => {
+    const user = await socialLogin('google');
+    if (user) {
+      if (!user.email_verified_at) navigate('/verify-email');
+      else navigate('/chat');
+    } else {
+      alert('No se pudo completar el registro con Google.');
+    }
+  };
 
   return (
     <>
@@ -88,20 +116,13 @@ const Register = () => {
               {/* Formulario */}
               <div className="px-6 sm:px-8 md:px-10 py-8">
                 <div className="max-w-[460px] mx-auto">
-                  <label
-                    htmlFor="email"
-                    className="block text-[15px] font-semibold text-white mb-2"
-                  >
-                    Email
-                  </label>
-                  <EditText
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e?.target?.value)}
-                    className="w-full h-12 rounded-[10px] bg-white/5 text-white placeholder:text-white/40 ring-1 ring-white/10 focus:ring-2 focus:ring-[#8B3DFF6e] transition-shadow px-5 py-3"
-                    padding="16px"
-                  />
+                  <label htmlFor="name" className="block text-[15px] font-semibold text-white mb-2">Nombre</label>
+                  <EditText id="name" type="text" value={name} onChange={(e) => setName(e?.target?.value)} className="w-full h-12 rounded-[10px] bg-white/5 text-white placeholder:text-white/40 ring-1 ring-white/10 focus:ring-2 focus:ring-[#8B3DFF6e] transition-shadow px-5 py-3" padding="16px" />
+                </div>
+
+                <div className="max-w-[460px] mx-auto mt-7">
+                  <label htmlFor="email" className="block text-[15px] font-semibold text-white mb-2">Email</label>
+                  <EditText id="email" type="email" value={email} onChange={(e) => setEmail(e?.target?.value)} className="w-full h-12 rounded-[10px] bg-white/5 text-white placeholder:text-white/40 ring-1 ring-white/10 focus:ring-2 focus:ring-[#8B3DFF6e] transition-shadow px-5 py-3" padding="16px" />
                 </div>
 
                 {/* Contraseña */}
@@ -168,9 +189,14 @@ const Register = () => {
                 </div>
 
                 {/* Botón principal */}
+                <div className="max-w-[460px] mx-auto mt-7">
+                  <label htmlFor="password2" className="block text-[15px] font-semibold text-white mb-2">Confirmar contraseña</label>
+                  <EditText id="password2" type={showPassword ? 'text' : 'password'} value={password2} onChange={(e) => setPassword2(e?.target?.value)} className="w-full h-12 rounded-[10px] bg-white/5 text-white placeholder:text-white/40 ring-1 ring-white/10 focus:ring-2 focus:ring-[#8B3DFF6e] transition-shadow px-5 py-3" padding="16px" />
+                </div>
+
                 <div className="mt-10 flex justify-center">
                   <Button
-                    onClick={async () => {
+                    onClick={async () => { await handleRegister(); return;
                       setIsLoading(true);
 
                       //
@@ -180,7 +206,7 @@ const Register = () => {
 
                       navigate('/verify-code');
                     }}
-                    disabled={isLoading || !email || !password}
+                    disabled={isLoading || !name || !email || !password || !password2}
                     className="w-[230px] h-11 rounded-full bg-[#7B2FE3] hover:bg-[#6c29c9] active:scale-[0.98] transition text-white"
                     border_border="transparent"
                     layout_width="auto"

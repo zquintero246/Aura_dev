@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { logout as apiLogout } from '../../lib/auth';
 
 /** Tipos opcionales para tus listas (mock por ahora) */
 export type ChatItem = { id: string; title: string };
@@ -39,6 +40,19 @@ const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  const handleProfile = onProfile ?? (() => navigate('/profile'));
+  const handleSettings = onSettings ?? (() => navigate('/settings'));
+  const handleHelp = onHelp ?? (() => navigate('/help'));
+  const handleTelemetry = onTelemetry ?? (() => navigate('/telemetry'));
+  const handleLogout =
+    onLogout ??
+    (async () => {
+      try {
+        await apiLogout();
+      } catch {}
+      navigate('/login');
+    });
 
   // Cerrar dropdown al hacer click afuera o presionar Esc
   useEffect(() => {
@@ -177,12 +191,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                 className="absolute bottom-16 left-3 w-[240px] rounded-2xl border border-white/15 bg-[#1B1B1B]/95 backdrop-blur shadow-[0_10px_40px_-10px_rgba(0,0,0,0.6)] p-2"
                 role="menu"
               >
-                <DropdownItem icon={<UserIcon />} label="Perfil" onClick={onProfile} />
-                <DropdownItem icon={<GearIcon />} label="Configuración" onClick={onSettings} />
+                <DropdownItem icon={<UserIcon />} label="Perfil" onClick={handleProfile} />
+                <DropdownItem icon={<GearIcon />} label="Configuraci�n" onClick={handleSettings} />
                 <div className="h-px bg-white/10 my-1" />
-                <DropdownItem icon={<HelpIcon />} label="Centro de ayuda" onClick={onHelp} />
-                <DropdownItem icon={<TelemetryIcon />} label="Telemetría" onClick={onTelemetry} />
-                <DropdownItem icon={<LogoutIcon />} label="Cerrar sesión" onClick={onLogout} />
+                <DropdownItem icon={<HelpIcon />} label="Centro de ayuda" onClick={handleHelp} />
+                <DropdownItem
+                  icon={<TelemetryIcon />}
+                  label="Telemetr�a"
+                  onClick={handleTelemetry}
+                />
+                <DropdownItem icon={<LogoutIcon />} label="Cerrar sesi�n" onClick={handleLogout} />
               </div>
             </div>
           </div>
@@ -211,7 +229,7 @@ function SidebarItem({
   active = false,
 }: {
   icon: React.ReactNode;
-  label: string;
+  label: React.ReactNode;
   onClick?: () => void;
   active?: boolean;
 }) {
@@ -245,7 +263,7 @@ function SectionTitle({
   );
 }
 
-function Row({ label, onClick }: { label: string; onClick?: () => void }) {
+function Row({ label, onClick }: { label: React.ReactNode; onClick?: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -282,7 +300,7 @@ function DropdownItem({
   onClick,
 }: {
   icon: React.ReactNode;
-  label: string;
+  label: React.ReactNode;
   onClick?: () => void;
 }) {
   return (

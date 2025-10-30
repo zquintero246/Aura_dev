@@ -54,6 +54,9 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    'frontend_url' => env('FRONTEND_URL', 'http://localhost:4028'),
+
+    'verification_url' => env('APP_VERIFICATION_URL', 'http://127.0.0.1:8000'),
     /*
     |--------------------------------------------------------------------------
     | Application Timezone

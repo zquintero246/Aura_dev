@@ -15,7 +15,7 @@ from typing import BinaryIO, Dict, Iterable, Optional, Tuple
 
 from array import array
 
-if __package__ is None or __package__ == "":  # ejecución directa (python AuraLLM/...)
+if __package__ is None or __package__ == "":
     PROJECT_ROOT = Path(__file__).resolve().parents[2]
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
@@ -37,7 +37,7 @@ except ImportError as exc:  # pragma: no cover - dependencia externa
         "Se requiere transformers. Instala con `pip install transformers`."
     ) from exc
 
-from AuraLLM.train.train_aura import (  # type: ignore
+from AuraLLM.train_DDP.train_aura import (  # type: ignore
     Config as ModelConfig,
     CUSTOM_MODEL_PRESETS,
     GPT2,
@@ -59,14 +59,14 @@ MODEL_PRESETS.update(
     {
         "aura-72h-extended": {
             "embed_size": 2048,
-            "num_layers": 28,
-            "num_heads": 16,
+            "num_layers": 48,
+            "num_heads": 20,
             "seq_length": 2048,
         },
         "aura-72h-max": {
             "embed_size": 2560,
-            "num_layers": 32,
-            "num_heads": 20,
+            "num_layers": 60,
+            "num_heads": 24,
             "seq_length": 2048,
         },
     }
@@ -128,7 +128,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dataset_path",
         type=Path,
-        default=Path("/datasets/spanish_corpus"),
+        default=Path("AuraLLM/datasets/spanish_corpus"),
         help="Ruta al corpus o directorio con .txt/.jsonl (por defecto /datasets/spanish_corpus)",
     )
     parser.add_argument(

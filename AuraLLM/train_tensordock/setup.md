@@ -25,18 +25,26 @@ Este documento describe cómo preparar TensorDock y ejecutar un entrenamiento de
    pip install transformers datasets tqdm sentencepiece bitsandbytes
    ```
 
-## 2. Colocar el dataset en español
+## 2. Dataset en español listo sin pasos manuales
 
-1. Copia el corpus a `/datasets/spanish_corpus/`. Puedes usar `scp`, `rsync`, montar un bucket o descargar directamente.
-2. El script acepta:
-   - Archivos `.txt` (texto continuo o un documento por línea).
-   - Archivos `.jsonl` con una clave `text` por entrada.
-3. Ejemplos de rutas válidas:
+El script puede **descargar automáticamente** el corpus cuando `--dataset_path` no exista. Por defecto usa `oscar-corpus/OSCAR-2201` (configuración `es`, split `train`) y escribe un `.jsonl` en `/datasets/spanish_corpus/`.
+
+1. No hagas nada si deseas el preset por defecto: al ejecutar el entrenamiento por primera vez verás un mensaje `Descargando dataset desde Hugging Face...` y el archivo quedará en `SPANISH_CORPUS/oscar-corpus_OSCAR-2201-es-train.jsonl`.
+2. Si prefieres otro dataset, ajusta las banderas:
+   - `--hf_dataset_name nombre/del-dataset`
+   - `--hf_dataset_config` (por ejemplo `es-clean`)
+   - `--hf_dataset_split` (`train`, `validation`, etc.)
+   - `--hf_text_field` si el campo no se llama `text`.
+   - `--hf_download_limit` para descargar solo los primeros *N* ejemplos (útil para pruebas rápidas).
+   - Añade `--hf_streaming` para escribir directamente desde streaming, reduciendo uso de disco temporal.
+3. ¿Ya tienes un corpus descargado? Copia tus ficheros `.txt` o `.jsonl` al directorio indicado y el script los detectará automáticamente sin volver a descargar nada.
+4. Ejemplos de rutas válidas si gestionas tu propio dataset:
    ```bash
    /datasets/spanish_corpus/wikipedia_es.txt
    /datasets/spanish_corpus/red_social.jsonl
    ```
-4. Si tienes varios ficheros, concaténalos previamente o apunta al principal mediante `--dataset_path`.
+5. Para apuntar a un archivo concreto usa `--dataset_path /ruta/al/archivo.jsonl`. Si no quieres que el script descargue nada agrega `--skip_auto_download`.
+6. Para datasets privados añade `--hf_auth_token <TOKEN>` (o configura `huggingface-cli login`).
 
 ## 3. Lanzar un entrenamiento de 72 h en la A100 (preset automático)
 
@@ -52,14 +60,20 @@ Ejemplo de ejecución recomendada:
 
 ```bash
 python AuraLLM/train_tensordock/train_tensordock.py \
-    --dataset_path /datasets/spanish_corpus/corpus.txt \
     --output_dir /workspace/aura_runs/aura_spanish \
-    --tokenizer_name_or_path spanish-tokenizer \
     --epochs 3 \
     --model_preset auto \
     --gradient_checkpointing \
     --log_interval 100
 ```
+
+> Si el corpus se encuentra fuera de `/datasets/spanish_corpus/`, añade `--dataset_path /ruta/al/archivo.jsonl`.
+
+### Tokenizer automático en español
+
+- Con `--tokenizer_name_or_path auto` (valor por defecto) se entrenará un tokenizer ByteLevel BPE directamente desde el corpus detectado y se guardará en `OUTPUT_DIR/tokenizer/`.
+- Si ya dispones de un tokenizer en español, indícalo con `--tokenizer_name_or_path nombre-o-ruta`. El script lo copiará automáticamente al directorio de salida y añadirá tokens especiales si faltan.
+- El JSON final (`model_config.json`) y los checkpoints almacenan el origen del tokenizer y el archivo de corpus utilizado para trazar la configuración exacta.
 
 ### Qué verás en consola
 
@@ -83,14 +97,12 @@ python AuraLLM/train_tensordock/train_tensordock.py \
    ```bash
    /workspace/aura_runs/aura_spanish/checkpoint-step-4500.pt
    ```
-2. Reanuda especificando `--resume_from`:
-   ```bash
-   python AuraLLM/train_tensordock/train_tensordock.py \
-       --dataset_path /datasets/spanish_corpus/corpus.txt \
-       --output_dir /workspace/aura_runs/aura_spanish \
-       --tokenizer_name_or_path spanish-tokenizer \
-       --resume_from /workspace/aura_runs/aura_spanish/checkpoint-step-4500.pt
-   ```
+2. Reanuda especificando `--resume_from` (no necesitas volver a indicar el tokenizer, se restaura desde el checkpoint):
+```bash
+python AuraLLM/train_tensordock/train_tensordock.py \
+    --output_dir /workspace/aura_runs/aura_spanish \
+    --resume_from /workspace/aura_runs/aura_spanish/checkpoint-step-4500.pt
+```
 3. Se restaurarán modelo, optimizador, `GradScaler`, scheduler y metadatos del preset automáticamente.
 
 ## 5. Buenas prácticas operativas

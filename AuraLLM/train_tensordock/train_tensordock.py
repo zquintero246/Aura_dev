@@ -64,9 +64,82 @@ MODEL_PRESETS.update(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Entrenamiento desde cero de Aura en TensorDock")
-    parser.add_argument("--dataset_path", type=Path, required=True, help="Ruta del corpus (.txt o .jsonl)")
-    parser.add_argument("--output_dir", type=Path, required=True, help="Directorio donde guardar checkpoints y modelos")
-    parser.add_argument("--tokenizer_name_or_path", type=str, required=True, help="Nombre o ruta local del tokenizer en español")
+    parser.add_argument(
+        "--dataset_path",
+        type=Path,
+        default=Path("/datasets/spanish_corpus"),
+        help="Ruta al corpus o directorio con .txt/.jsonl (por defecto /datasets/spanish_corpus)",
+    )
+    parser.add_argument(
+        "--hf_dataset_name",
+        type=str,
+        default="oscar-corpus/OSCAR-2201",
+        help="Dataset de Hugging Face a descargar automáticamente si no existe dataset_path",
+    )
+    parser.add_argument(
+        "--hf_dataset_config",
+        type=str,
+        default="es",
+        help="Configuración/subconjunto del dataset de Hugging Face",
+    )
+    parser.add_argument(
+        "--hf_dataset_split",
+        type=str,
+        default="train",
+        help="Split del dataset de Hugging Face",
+    )
+    parser.add_argument(
+        "--hf_text_field",
+        type=str,
+        default="text",
+        help="Campo que contiene el texto dentro del dataset de Hugging Face",
+    )
+    parser.add_argument(
+        "--hf_download_limit",
+        type=int,
+        default=None,
+        help="Limita el número de ejemplos descargados (None descarga todo el split)",
+    )
+    parser.add_argument(
+        "--hf_streaming",
+        action="store_true",
+        help="Usa streaming de datasets para escribir directamente a disco",
+    )
+    parser.add_argument(
+        "--hf_auth_token",
+        type=str,
+        default=None,
+        help="Token de autenticación para datasets privados de Hugging Face",
+    )
+    parser.add_argument(
+        "--skip_auto_download",
+        action="store_true",
+        help="Desactiva la descarga automática del dataset si no existe dataset_path",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=Path,
+        required=True,
+        help="Directorio donde guardar checkpoints y modelos",
+    )
+    parser.add_argument(
+        "--tokenizer_name_or_path",
+        type=str,
+        default="auto",
+        help="Nombre/ruta del tokenizer o 'auto' para entrenarlo desde el corpus",
+    )
+    parser.add_argument(
+        "--tokenizer_vocab_size",
+        type=int,
+        default=52000,
+        help="Tamaño del vocabulario si se entrena tokenizer automáticamente",
+    )
+    parser.add_argument(
+        "--tokenizer_min_frequency",
+        type=int,
+        default=2,
+        help="Frecuencia mínima de tokens para el tokenizer automático",
+    )
     parser.add_argument("--epochs", type=int, default=1, help="Número de épocas completas")
     parser.add_argument(
         "--model_preset",
@@ -232,6 +305,193 @@ def load_tokenizer(path_or_name: str) -> PreTrainedTokenizerBase:
         tokenizer.add_special_tokens({"pad_token": tokenizer.eos_token or "<|pad|>"})
     tokenizer.model_max_length = int(1e12)  # sin truncamiento implícito
     return tokenizer
+
+
+def resolve_dataset_file(path: Path) -> Path:
+    if path.is_file():
+        return path
+    if path.is_dir():
+        candidates = sorted([*path.glob("*.txt"), *path.glob("*.jsonl")])
+        if not candidates:
+            raise FileNotFoundError(
+                f"No se encontraron archivos .txt o .jsonl en {path}."
+            )
+        selected = candidates[0]
+        print(
+            f"Se utilizará el corpus {selected.name} ubicado en {selected.parent}",
+            flush=True,
+        )
+        return selected
+    raise FileNotFoundError(f"La ruta {path} no existe")
+
+
+def extract_text_field(example: Dict[str, object], field: Optional[str]) -> Optional[str]:
+    if field and field in example:
+        value = example[field]
+        if value is None:
+            return None
+        if isinstance(value, (list, tuple)):
+            value = " ".join(str(v) for v in value if v)
+        return str(value).strip()
+
+    for candidate in ("text", "content", "body", "sentence"):
+        if candidate in example and example[candidate]:
+            value = example[candidate]
+            if isinstance(value, (list, tuple)):
+                value = " ".join(str(v) for v in value if v)
+            return str(value).strip()
+    return None
+
+
+def download_hf_corpus(
+    args: argparse.Namespace,
+) -> Path:
+    try:
+        from datasets import load_dataset
+    except ImportError as exc:  # pragma: no cover - dependencia externa
+        raise ImportError(
+            "Para descargar datasets automáticamente instala `datasets` (pip install datasets)."
+        ) from exc
+
+    dataset_name = args.hf_dataset_name
+    if not dataset_name or dataset_name.lower() in {"none", "null"}:
+        raise FileNotFoundError(
+            "dataset_path no existe y no se proporcionó hf_dataset_name para descargar automáticamente."
+        )
+
+    target = args.dataset_path
+    if target.suffix:
+        output_dir = target.parent
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_file = target
+    else:
+        output_dir = target
+        output_dir.mkdir(parents=True, exist_ok=True)
+        sanitized = dataset_name.replace("/", "_")
+        output_file = output_dir / f"{sanitized}-{args.hf_dataset_config}-{args.hf_dataset_split}.jsonl"
+
+    print(
+        "Descargando dataset desde Hugging Face: "
+        f"{dataset_name} ({args.hf_dataset_config}/{args.hf_dataset_split})",
+        flush=True,
+    )
+
+    dataset = load_dataset(
+        dataset_name,
+        args.hf_dataset_config or None,
+        split=args.hf_dataset_split,
+        streaming=args.hf_streaming,
+        use_auth_token=args.hf_auth_token,
+    )
+
+    import json as _json
+
+    written_examples = 0
+    with output_file.open("w", encoding="utf-8") as f:
+        iterator: Iterable[Dict[str, object]]
+        iterator = dataset if args.hf_streaming else dataset  # type: ignore[assignment]
+        for example in iterator:
+            text = extract_text_field(example, args.hf_text_field)
+            if not text:
+                continue
+            record = {"text": text}
+            f.write(_json.dumps(record, ensure_ascii=False) + "\n")
+            written_examples += 1
+            if args.hf_download_limit and written_examples >= args.hf_download_limit:
+                break
+
+    if written_examples == 0:
+        raise ValueError(
+            "No se pudieron extraer ejemplos del dataset descargado. Revisa hf_text_field o dataset configurado."
+        )
+
+    print(
+        f"Dataset guardado en {output_file} con {written_examples:,} ejemplos",
+        flush=True,
+    )
+    return output_file
+
+
+def ensure_dataset_file(args: argparse.Namespace) -> Path:
+    path = args.dataset_path
+    if path.exists():
+        return resolve_dataset_file(path)
+    if args.skip_auto_download:
+        raise FileNotFoundError(
+            f"La ruta {path} no existe y se solicitó omitir la descarga automática"
+        )
+    return download_hf_corpus(args)
+
+
+def train_tokenizer_from_corpus(
+    dataset_path: Path,
+    vocab_size: int,
+    min_frequency: int,
+    output_dir: Path,
+) -> PreTrainedTokenizerBase:
+    try:
+        from tokenizers import Tokenizer
+        from tokenizers.decoders import ByteLevel as ByteLevelDecoder
+        from tokenizers.models import BPE
+        from tokenizers.pre_tokenizers import ByteLevel
+        from tokenizers.trainers import BpeTrainer
+    except ImportError as exc:  # pragma: no cover - dependencia opcional
+        raise ImportError(
+            "Para entrenar el tokenizer automáticamente instala `tokenizers` (pip install tokenizers)."
+        ) from exc
+
+    print(
+        "Entrenando tokenizer ByteLevel BPE directamente desde el corpus…",
+        flush=True,
+    )
+
+    tokenizer = Tokenizer(BPE(unk_token="<|unk|>"))
+    tokenizer.pre_tokenizer = ByteLevel()
+    tokenizer.decoder = ByteLevelDecoder()
+    trainer = BpeTrainer(
+        vocab_size=vocab_size,
+        min_frequency=min_frequency,
+        special_tokens=["<|pad|>", "<|bos|>", "<|eos|>", "<|unk|>"],
+    )
+    tokenizer.train_from_iterator(read_corpus(dataset_path), trainer=trainer)
+
+    from transformers import PreTrainedTokenizerFast
+
+    hf_tokenizer = PreTrainedTokenizerFast(tokenizer_object=tokenizer)
+    hf_tokenizer.pad_token = "<|pad|>"
+    hf_tokenizer.bos_token = "<|bos|>"
+    hf_tokenizer.eos_token = "<|eos|>"
+    hf_tokenizer.unk_token = "<|unk|>"
+    hf_tokenizer.model_max_length = int(1e12)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    hf_tokenizer.save_pretrained(output_dir)
+    print(
+        f"Tokenizer entrenado y guardado en {output_dir} (vocab_size={len(hf_tokenizer)})",
+        flush=True,
+    )
+    return hf_tokenizer
+
+
+def prepare_tokenizer(
+    args: argparse.Namespace, dataset_path: Path
+) -> Tuple[PreTrainedTokenizerBase, Dict[str, object]]:
+    if args.tokenizer_name_or_path.lower() == "auto":
+        tokenizer_dir = args.output_dir / "tokenizer"
+        tokenizer = train_tokenizer_from_corpus(
+            dataset_path,
+            args.tokenizer_vocab_size,
+            args.tokenizer_min_frequency,
+            tokenizer_dir,
+        )
+        return tokenizer, {"tokenizer_source": "auto", "tokenizer_dir": str(tokenizer_dir)}
+
+    tokenizer = load_tokenizer(args.tokenizer_name_or_path)
+    saved_dir = args.output_dir / "tokenizer"
+    tokenizer.save_pretrained(saved_dir)
+    return tokenizer, {
+        "tokenizer_source": args.tokenizer_name_or_path,
+        "tokenizer_dir": str(saved_dir),
+    }
 
 
 def read_corpus(path: Path) -> Iterable[str]:
@@ -432,11 +692,14 @@ def main() -> None:
     else:
         print("Advertencia: no se detectó GPU, el entrenamiento será muy lento", flush=True)
 
-    tokenizer = load_tokenizer(args.tokenizer_name_or_path)
+    dataset_file = ensure_dataset_file(args)
+    tokenizer, tokenizer_info = prepare_tokenizer(args, dataset_file)
+    tokenizer_info["tokenizer_vocab_size"] = len(tokenizer)
+    tokenizer_info["tokenizer_pad_token"] = tokenizer.pad_token
     apply_model_preset(args, total_mem_gb)
     resolve_training_hparams(args)
 
-    token_ids = tokenize_corpus(tokenizer, read_corpus(args.dataset_path))
+    token_ids = tokenize_corpus(tokenizer, read_corpus(dataset_file))
     train_dataset, val_dataset = prepare_datasets(token_ids, args.seq_length, args.validation_split)
 
     train_tokens = len(train_dataset.text)
@@ -559,6 +822,12 @@ def main() -> None:
         "gradient_checkpointing": args.gradient_checkpointing,
         "effective_batch_size": effective_batch,
         "tokens_per_step": tokens_per_step,
+        "dataset_file": str(dataset_file),
+        "hf_dataset_name": args.hf_dataset_name,
+        "hf_dataset_config": args.hf_dataset_config,
+        "hf_dataset_split": args.hf_dataset_split,
+        "auto_download": not args.skip_auto_download,
+        **tokenizer_info,
     }
 
     def handle_interrupt(signum, frame):  # pragma: no cover - señal externa
@@ -762,6 +1031,8 @@ def main() -> None:
                 "effective_batch_size": effective_batch,
                 "tokens_per_step": tokens_per_step,
                 "steps_completed": steps_completed,
+                "dataset_file": str(dataset_file),
+                **tokenizer_info,
             },
             f,
             indent=2,

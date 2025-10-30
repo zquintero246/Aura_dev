@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import signal
 import sys
 import time
@@ -12,6 +13,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple
 
+from array import array
 
 if __package__ is None or __package__ == "":
     PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -112,6 +114,11 @@ HF_DATASET_PRESETS: Dict[str, Dict[str, object]] = {
         "hf_trust_remote_code": True,
     },
 }
+
+
+TOKENIZE_CHUNK_SIZE = 10_000
+TOKEN_CACHE_FILENAME = "dataset_tokens.pt"
+_TOKEN_CACHE_PATH: Optional[Path] = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -618,15 +625,99 @@ def tokenize_corpus(
     tokenizer: PreTrainedTokenizerBase,
     corpus: Iterable[str],
 ) -> torch.Tensor:
-    all_ids = []
-    for chunk in corpus:
-        ids = tokenizer.encode(chunk, add_special_tokens=False)
-        if not ids:
+    env_chunk_size = os.environ.get("AURA_TOKENIZE_CHUNK_SIZE")
+    if env_chunk_size is not None:
+        try:
+            chunk_size = int(env_chunk_size)
+        except ValueError:
+            print(
+                "Valor inválido para AURA_TOKENIZE_CHUNK_SIZE; usando el tamaño por defecto",
+                flush=True,
+            )
+            chunk_size = TOKENIZE_CHUNK_SIZE
+    else:
+        chunk_size = TOKENIZE_CHUNK_SIZE
+    chunk_size = max(chunk_size, 1)
+
+    token_buffer = array("I")
+    chunk: list[str] = []
+    total_lines = 0
+
+    def process_chunk(lines: list[str]) -> None:
+        nonlocal total_lines
+        if not lines:
+            return
+
+        batch_encoding = tokenizer(
+            lines,
+            add_special_tokens=False,
+            return_attention_mask=False,
+            return_token_type_ids=False,
+            padding=False,
+            truncation=False,
+        )
+
+        input_ids = batch_encoding.get("input_ids", [])
+        if isinstance(input_ids, torch.Tensor):
+            sequences = input_ids.tolist()
+        else:
+            sequences = input_ids
+
+        if isinstance(sequences, list) and sequences and isinstance(sequences[0], int):
+            sequences = [sequences]  # type: ignore[assignment]
+
+        produced_tokens = 0
+        for ids in sequences or []:
+            if not ids:
+                continue
+            if isinstance(ids, torch.Tensor):
+                ids = ids.tolist()
+            elif isinstance(ids, int):
+                ids = [ids]
+            new_tokens = [int(token_id) for token_id in ids]
+            token_buffer.extend(new_tokens)
+            produced_tokens += len(new_tokens)
+
+        total_lines += len(lines)
+
+        if produced_tokens:
+            print(
+                f"Procesadas {total_lines:,} líneas... Tokens acumulados: {len(token_buffer):,}",
+                flush=True,
+            )
+
+    for text in corpus:
+        if text is None:
             continue
-        all_ids.extend(ids)
-    if not all_ids:
+        if not isinstance(text, str):
+            text = str(text)
+        if not text:
+            continue
+        chunk.append(text)
+        if len(chunk) >= chunk_size:
+            process_chunk(chunk)
+            chunk.clear()
+
+    process_chunk(chunk)
+
+    if not token_buffer:
         raise ValueError("El corpus tokenizado quedó vacío")
-    return torch.tensor(all_ids, dtype=torch.long)
+
+    token_ids = torch.tensor(token_buffer, dtype=torch.long)
+
+    if _TOKEN_CACHE_PATH is not None:
+        _TOKEN_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(token_ids, _TOKEN_CACHE_PATH)
+        print(
+            f"Tokens tokenizados guardados en {_TOKEN_CACHE_PATH}",
+            flush=True,
+        )
+
+    print(
+        f"Tokenización completada. Total líneas: {total_lines:,}. Tokens: {token_ids.numel():,}",
+        flush=True,
+    )
+    return token_ids
 
 
 def prepare_datasets(
@@ -798,7 +889,23 @@ def main() -> None:
     apply_model_preset(args, total_mem_gb)
     resolve_training_hparams(args)
 
-    token_ids = tokenize_corpus(tokenizer, read_corpus(dataset_file))
+    global _TOKEN_CACHE_PATH
+    _TOKEN_CACHE_PATH = args.output_dir / TOKEN_CACHE_FILENAME
+
+    if _TOKEN_CACHE_PATH.exists():
+        print(f"Cargando tokens preprocesados desde {_TOKEN_CACHE_PATH}", flush=True)
+        token_ids = torch.load(_TOKEN_CACHE_PATH, map_location="cpu")
+        if not isinstance(token_ids, torch.Tensor):
+            raise ValueError(
+                "El archivo de tokens guardado no contiene un tensor válido. Elimínalo y vuelve a tokenizar."
+            )
+        token_ids = token_ids.long().contiguous()
+        print(
+            f"Tokens cargados: {token_ids.numel():,}. Se omite la tokenización.",
+            flush=True,
+        )
+    else:
+        token_ids = tokenize_corpus(tokenizer, read_corpus(dataset_file))
     train_dataset, val_dataset = prepare_datasets(token_ids, args.seq_length, args.validation_split)
 
     train_tokens = len(train_dataset.text)

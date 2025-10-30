@@ -938,8 +938,12 @@ def main() -> None:
         token_ids = tokenize_corpus(tokenizer, read_corpus(dataset_file))
     train_dataset, val_dataset = prepare_datasets(token_ids, args.seq_length, args.validation_split)
 
-    train_tokens = len(train_dataset.text)
-    val_tokens = len(val_dataset.text) if val_dataset is not None else 0
+    train_tokens = getattr(train_dataset, "effective_token_count", len(train_dataset.text))
+    val_tokens = (
+        getattr(val_dataset, "effective_token_count", len(val_dataset.text))
+        if val_dataset is not None
+        else 0
+    )
     total_tokens = train_tokens + val_tokens
     print(
         f"Tokens disponibles -> entrenamiento: {train_tokens:,} | validación: {val_tokens:,} | total: {total_tokens:,}",

@@ -1230,6 +1230,10 @@ def maybe_compile_model(model: torch.nn.Module, args: argparse.Namespace) -> tor
     if not args.torch_compile:
         return model
 
+    # Evitar recompilar módulos que ya fueron envueltos por torch.compile
+    if hasattr(model, "_orig_mod"):
+        return model
+
     if not hasattr(torch, "compile"):
         print(
             "torch.compile no está disponible en esta versión de PyTorch; "
@@ -1244,6 +1248,13 @@ def maybe_compile_model(model: torch.nn.Module, args: argparse.Namespace) -> tor
 
     try:
         compiled = torch.compile(model, **compile_kwargs)
+        if not isinstance(compiled, torch.nn.Module):
+            print(
+                "torch.compile devolvió un objeto no compatible (sin interfaz de módulo); "
+                "se continúa sin compilación.",
+                flush=True,
+            )
+            return model
         print(
             "Modelo compilado con torch.compile "
             f"(modo={args.compile_mode}, fullgraph={args.compile_fullgraph}).",

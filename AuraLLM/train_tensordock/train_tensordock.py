@@ -618,55 +618,61 @@ def optimize_for_runtime(
         flush=True,
     )
 
-    # Ajustar el batch efectivo deseado según la ventana de memoria libre.
-    target_effective = 144.0
+    # Mantener el batch efectivo dentro de la ventana indicada (128-160) siempre que la VRAM lo permita.
+    target_min_effective = 128.0
+    target_max_effective = 160.0
+    target_effective = (target_min_effective + target_max_effective) / 2.0
+
     if free_gb < 60:
-        target_effective = 112.0
+        # Menor VRAM disponible: bajar acumulación y aceptar un batch efectivo algo menor.
+        desired_effective = max(target_min_effective * 0.75, base_batch * base_accum)
+        zone = "low"
     elif free_gb > 70:
-        target_effective = 160.0
-
-    max_micro_batch = base_batch
-    if free_gb > 0:
-        max_micro_batch = max(
-            base_batch,
-            min(16, max(1, int(free_gb // 8))),
-        )
-    if free_gb > 70:
-        max_micro_batch = max(
-            max_micro_batch,
-            base_batch + int(max(1.0, (free_gb - 70) / 2.0)),
-        )
-
-    desired_batch = min(
-        max_micro_batch,
-        max(base_batch, int(math.ceil(target_effective / base_accum))),
-    )
-    proposed_batch = max(1, desired_batch)
-
-    proposed_grad_accum = max(1, int(round(target_effective / proposed_batch)))
-
-    if free_gb < 60:
-        proposed_grad_accum = max(1, min(proposed_grad_accum, max(4, base_accum // 2)))
-
-    effective = proposed_batch * proposed_grad_accum
-    if free_gb >= 60:
-        if effective < 128:
-            proposed_grad_accum = math.ceil(128 / proposed_batch)
-        elif effective > 160:
-            proposed_grad_accum = max(1, math.floor(160 / proposed_batch))
+        # Mucha VRAM libre: apuntar al máximo de la ventana para acercarnos al límite sin OOM.
+        desired_effective = target_max_effective
+        zone = "high"
     else:
-        if effective > 112:
-            proposed_grad_accum = max(1, math.floor(112 / proposed_batch))
+        desired_effective = target_effective
+        zone = "mid"
 
-    proposed_grad_accum = max(1, proposed_grad_accum)
+    runtime_info["memory_zone"] = zone
+
+    proposed_batch = max(base_batch, int(math.ceil(desired_effective / base_accum)))
+
+    if zone == "high":
+        # Intentar crecer microbatch proporcionalmente al headroom disponible.
+        reserve_gb = max(6.0, total_gb * 0.05)
+        usable_gb = max(free_gb - reserve_gb, 0.0)
+        bump = int(max(1.0, math.floor(usable_gb / 6.0)))
+        proposed_batch = min(16, max(proposed_batch, base_batch + bump))
+    elif zone == "low":
+        # Con poca memoria, no exceder demasiado el batch base.
+        proposed_batch = max(base_batch, min(proposed_batch, base_batch + 2))
+
+    proposed_grad_accum = base_accum
+    if zone == "low":
+        proposed_grad_accum = max(4, min(base_accum, int(math.floor(desired_effective / proposed_batch)) or 1))
+    else:
+        proposed_grad_accum = max(1, int(round(desired_effective / proposed_batch)))
+
     effective = proposed_batch * proposed_grad_accum
 
-    if free_gb > 70:
-        proposed_grad_accum = max(proposed_grad_accum, base_accum)
+    if zone != "low" and effective < target_min_effective:
+        proposed_grad_accum = max(
+            1,
+            int(math.ceil(target_min_effective / proposed_batch)),
+        )
         effective = proposed_batch * proposed_grad_accum
-        if effective > 160:
-            proposed_grad_accum = max(1, math.floor(160 / proposed_batch))
-            effective = proposed_batch * proposed_grad_accum
+
+    if effective > target_max_effective:
+        proposed_grad_accum = max(1, int(math.floor(target_max_effective / proposed_batch)))
+        effective = proposed_batch * proposed_grad_accum
+
+    if effective < target_min_effective * 0.75:
+        # Último recurso: volver a la configuración base si no alcanzamos la ventana.
+        proposed_batch = base_batch
+        proposed_grad_accum = base_accum
+        effective = proposed_batch * proposed_grad_accum
 
     # Reducir segmentos de checkpointing si la VRAM extra lo permite.
     if args.gradient_checkpointing:
@@ -1212,14 +1218,61 @@ def create_model(
     return model, config
 
 
-def create_optimizer(model: GPT2, lr: float, weight_decay: float):
+def unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
+    """Devuelve el módulo real cuando torch.compile envuelve el modelo."""
+
+    return getattr(model, "_orig_mod", model)
+
+
+def maybe_compile_model(model: torch.nn.Module, args: argparse.Namespace) -> torch.nn.Module:
+    """Compila el modelo sólo después de haber restaurado checkpoints."""
+
+    if not args.torch_compile:
+        return model
+
+    if not hasattr(torch, "compile"):
+        print(
+            "torch.compile no está disponible en esta versión de PyTorch; "
+            "continuando sin compilar.",
+            flush=True,
+        )
+        return model
+
+    compile_kwargs = {"mode": args.compile_mode}
+    if args.compile_fullgraph:
+        compile_kwargs["fullgraph"] = True
+
+    try:
+        compiled = torch.compile(model, **compile_kwargs)
+        print(
+            "Modelo compilado con torch.compile "
+            f"(modo={args.compile_mode}, fullgraph={args.compile_fullgraph}).",
+            flush=True,
+        )
+        return compiled
+    except Exception as compile_error:  # pragma: no cover - dependiente del backend
+        print(
+            "No se pudo compilar el modelo con torch.compile: "
+            f"{compile_error}. Se continúa sin compilación.",
+            flush=True,
+        )
+        return model
+
+
+def create_optimizer(model: torch.nn.Module, lr: float, weight_decay: float):
+    params = unwrap_model(model).parameters()
     try:
         import bitsandbytes as bnb  # type: ignore
 
-        optimizer = bnb.optim.AdamW8bit(model.parameters(), lr=lr, weight_decay=weight_decay)
+        optimizer = bnb.optim.AdamW8bit(params, lr=lr, weight_decay=weight_decay)
         print("Usando AdamW 8-bit de bitsandbytes", flush=True)
     except Exception:
-        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay, betas=(0.9, 0.95))
+        optimizer = torch.optim.AdamW(
+            params,
+            lr=lr,
+            weight_decay=weight_decay,
+            betas=(0.9, 0.95),
+        )
         print("bitsandbytes no disponible, usando torch.optim.AdamW", flush=True)
     return optimizer
 
@@ -1230,7 +1283,7 @@ def format_time(seconds: float) -> str:
 
 def save_checkpoint(
     output_dir: Path,
-    model: GPT2,
+    model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     scaler: GradScaler,
     tokenizer: PreTrainedTokenizerBase,
@@ -1245,7 +1298,7 @@ def save_checkpoint(
     checkpoint_path = output_dir / f"checkpoint-{tag}.pt"
     torch.save(
         {
-            "model_state_dict": model.state_dict(),
+            "model_state_dict": unwrap_model(model).state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "scaler_state_dict": scaler.state_dict() if scaler.is_enabled() else None,
             "global_step": step,
@@ -1517,7 +1570,7 @@ def main() -> None:
     if args.resume_from is not None:
         print(f"Reanudando desde {args.resume_from}", flush=True)
         checkpoint = torch.load(args.resume_from, map_location=device)
-        model.load_state_dict(checkpoint["model_state_dict"])
+        unwrap_model(model).load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         scaler_state = checkpoint.get("scaler_state_dict")
         if scaler.is_enabled():
@@ -1586,6 +1639,9 @@ def main() -> None:
         model.train()
 
     initial_global_step = global_step
+
+    model = maybe_compile_model(model, args)
+    model.train()
 
     stop_training = False
     checkpoint_metadata = {
@@ -2001,7 +2057,7 @@ def main() -> None:
         )
 
     final_model_path = args.output_dir / "final_model.pt"
-    torch.save(model.state_dict(), final_model_path)
+    torch.save(unwrap_model(model).state_dict(), final_model_path)
     with (args.output_dir / "model_config.json").open("w", encoding="utf-8") as f:
         json.dump(
             {

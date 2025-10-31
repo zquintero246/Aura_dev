@@ -1174,7 +1174,6 @@ def main() -> None:
                     )
                     progress_bar.write(message)
                     optimizer.zero_grad(set_to_none=True)
-                    scaler.update()
                     micro_step = 0
                     step_start_time = time.time()
 

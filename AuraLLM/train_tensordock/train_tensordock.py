@@ -296,6 +296,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--precision",
+        type=str,
+        choices=("auto", "fp32", "fp16", "bf16"),
+        default="auto",
+        help=(
+            "Precisión de entrenamiento. 'auto' usa bf16 cuando esté disponible, "
+            "fp16 en otras GPUs y fp32 en CPU."
+        ),
+    )
+    parser.add_argument(
         "--grad_clip",
         type=float,
         default=1.0,
@@ -455,6 +465,49 @@ def resolve_training_hparams(args: argparse.Namespace) -> None:
 
     if args.gradient_checkpointing:
         args.checkpoint_segments = max(1, int(args.checkpoint_segments))
+
+
+def resolve_training_precision(args: argparse.Namespace, device: torch.device) -> None:
+    requested = (args.precision or "auto").lower()
+    resolved = requested
+
+    if requested == "auto":
+        if device.type == "cuda":
+            is_bf16_supported = bool(
+                getattr(torch.cuda, "is_bf16_supported", lambda: False)()
+            )
+            resolved = "bf16" if is_bf16_supported else "fp16"
+        else:
+            resolved = "fp32"
+    elif requested == "bf16":
+        if device.type != "cuda":
+            print(
+                "[ADVERTENCIA] bf16 no es compatible con el dispositivo actual; "
+                "se utilizará fp32.",
+                flush=True,
+            )
+            resolved = "fp32"
+        elif not getattr(torch.cuda, "is_bf16_supported", lambda: False)():
+            print(
+                "[ADVERTENCIA] La GPU no soporta bf16 nativo; se utilizará fp16.",
+                flush=True,
+            )
+            resolved = "fp16"
+    elif requested == "fp16" and device.type != "cuda":
+        print(
+            "[ADVERTENCIA] fp16 requiere GPU; se utilizará fp32.",
+            flush=True,
+        )
+        resolved = "fp32"
+
+    autocast_dtype = None
+    if device.type == "cuda" and resolved in {"fp16", "bf16"}:
+        autocast_dtype = torch.float16 if resolved == "fp16" else torch.bfloat16
+
+    args.precision = resolved
+    args.autocast_dtype = autocast_dtype
+    args.use_autocast = autocast_dtype is not None
+    args.use_grad_scaler = device.type == "cuda" and resolved == "fp16"
 
 
 def finalize_warmup(args: argparse.Namespace, total_optimizer_steps: int) -> None:
@@ -935,7 +988,7 @@ def save_checkpoint(
         {
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
-            "scaler_state_dict": scaler.state_dict(),
+            "scaler_state_dict": scaler.state_dict() if scaler.is_enabled() else None,
             "global_step": step,
             "epoch": epoch,
             "config": config.__dict__,
@@ -984,6 +1037,8 @@ def evaluate(
     model: GPT2,
     dataloader: DataLoader,
     device: torch.device,
+    use_autocast: bool = False,
+    autocast_dtype: Optional[torch.dtype] = None,
 ) -> float:
     model.eval()
     total_loss = 0.0
@@ -992,11 +1047,15 @@ def evaluate(
         for inputs, labels in dataloader:
             inputs = inputs.to(device)
             labels = labels.to(device)
-            logits = model(inputs)
-            loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)),
-                labels.view(-1),
+            amp_context = (
+                autocast(dtype=autocast_dtype) if use_autocast else nullcontext()
             )
+            with amp_context:
+                logits = model(inputs)
+                loss = F.cross_entropy(
+                    logits.view(-1, logits.size(-1)),
+                    labels.view(-1),
+                )
             total_loss += loss.item()
             total_batches += 1
     model.train()
@@ -1031,6 +1090,7 @@ def main() -> None:
     tokenizer_info["tokenizer_pad_token"] = tokenizer.pad_token
     apply_model_preset(args, total_mem_gb)
     resolve_training_hparams(args)
+    resolve_training_precision(args, device)
 
     global _TOKEN_CACHE_PATH
     _TOKEN_CACHE_PATH = args.output_dir / TOKEN_CACHE_FILENAME
@@ -1122,6 +1182,12 @@ def main() -> None:
             flush=True,
         )
 
+    if args.use_autocast:
+        precision_label = f"autocast {str(args.autocast_dtype).split('.')[-1]}"
+    else:
+        precision_label = args.precision
+    print(f"Modo de precisión: {precision_label}", flush=True)
+
     model.train()
     num_params = sum(p.numel() for p in model.parameters())
     print(
@@ -1130,7 +1196,7 @@ def main() -> None:
     )
 
     optimizer = create_optimizer(model, args.learning_rate, args.weight_decay)
-    scaler = GradScaler(enabled=device.type == "cuda")
+    scaler = GradScaler(enabled=args.use_grad_scaler)
 
     scheduler = None
     if args.warmup_steps and args.warmup_steps > 0:
@@ -1159,7 +1225,21 @@ def main() -> None:
         checkpoint = torch.load(args.resume_from, map_location=device)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        scaler.load_state_dict(checkpoint["scaler_state_dict"])
+        scaler_state = checkpoint.get("scaler_state_dict")
+        if scaler.is_enabled():
+            if scaler_state:
+                scaler.load_state_dict(scaler_state)
+            else:
+                print(
+                    "[AVISO] El checkpoint no contenía estado del GradScaler; se reiniciará.",
+                    flush=True,
+                )
+        elif scaler_state:
+            print(
+                "[AVISO] Se ignoró el estado del GradScaler del checkpoint porque "
+                "la precisión actual no usa escalado.",
+                flush=True,
+            )
         global_step = checkpoint.get("global_step", 0)
         start_epoch = checkpoint.get("epoch", 0)
         if scheduler is not None and checkpoint.get("scheduler_state_dict") is not None:
@@ -1198,6 +1278,17 @@ def main() -> None:
                     and args.nan_patience == NAN_PATIENCE_DEFAULT
                 ):
                     args.nan_patience = restored_patience_int
+            restored_precision = restored_metadata.get("precision")
+            if (
+                isinstance(restored_precision, str)
+                and restored_precision
+                and restored_precision != args.precision
+            ):
+                print(
+                    "[AVISO] El checkpoint se entrenó con precisión "
+                    f"{restored_precision}; precisión actual: {args.precision}.",
+                    flush=True,
+                )
         model.train()
 
     initial_global_step = global_step
@@ -1217,6 +1308,8 @@ def main() -> None:
         "nan_lr_factor": args.nan_lr_factor,
         "nan_min_lr": args.nan_min_lr,
         "nan_patience": args.nan_patience,
+        "precision": args.precision,
+        "autocast_dtype": str(args.autocast_dtype) if args.autocast_dtype else None,
         **tokenizer_info,
     }
     nan_events = int(restored_metadata.get("nan_events", 0))
@@ -1252,8 +1345,8 @@ def main() -> None:
                 labels = labels.to(device)
 
                 amp_context = (
-                    autocast(dtype=torch.float16)
-                    if device.type == "cuda"
+                    autocast(dtype=args.autocast_dtype)
+                    if args.use_autocast
                     else nullcontext()
                 )
                 logits = None
@@ -1391,7 +1484,8 @@ def main() -> None:
 
                 if micro_step == args.gradient_accumulation_steps:
                     if args.grad_clip is not None:
-                        scaler.unscale_(optimizer)
+                        if scaler.is_enabled():
+                            scaler.unscale_(optimizer)
                         clip_grad_norm_(model.parameters(), args.grad_clip)
                     scaler.step(optimizer)
                     scaler.update()
@@ -1444,7 +1538,8 @@ def main() -> None:
             train_loss = float(sum(epoch_losses) / max(len(epoch_losses), 1))
             if not stop_training and micro_step > 0:
                 if args.grad_clip is not None:
-                    scaler.unscale_(optimizer)
+                    if scaler.is_enabled():
+                        scaler.unscale_(optimizer)
                     clip_grad_norm_(model.parameters(), args.grad_clip)
                 scaler.step(optimizer)
                 scaler.update()
@@ -1469,7 +1564,13 @@ def main() -> None:
                 micro_step = 0
             val_loss = None
             if val_loader is not None:
-                val_loss = evaluate(model, val_loader, device)
+                val_loss = evaluate(
+                    model,
+                    val_loader,
+                    device,
+                    use_autocast=args.use_autocast,
+                    autocast_dtype=args.autocast_dtype,
+                )
 
             save_training_log(log_path, epoch + 1, train_loss, val_loss)
             print(
@@ -1564,6 +1665,9 @@ def main() -> None:
                 "gradient_checkpointing": args.gradient_checkpointing,
                 "effective_batch_size": effective_batch,
                 "tokens_per_step": tokens_per_step,
+                "precision": args.precision,
+                "autocast_dtype": str(args.autocast_dtype) if args.autocast_dtype else None,
+                "use_grad_scaler": args.use_grad_scaler,
                 "nan_behavior": args.nan_behavior,
                 "nan_lr_factor": args.nan_lr_factor,
                 "nan_min_lr": args.nan_min_lr,

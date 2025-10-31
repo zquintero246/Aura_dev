@@ -259,10 +259,33 @@ def parse_args() -> argparse.Namespace:
         help="Segmentos para checkpoint_sequential cuando está activo el gradient checkpointing",
     )
     parser.add_argument(
+        "--nan_behavior",
+        type=str,
+        choices=("stop", "skip", "reduce-lr"),
+        default="stop",
+        help=(
+            "Cómo actuar si la pérdida es NaN/Inf: 'stop' detiene el entrenamiento, "
+            "'skip' ignora el microbatch y continúa, 'reduce-lr' además reduce la tasa"
+            " de aprendizaje."
+        ),
+    )
+    parser.add_argument(
+        "--nan_lr_factor",
+        type=float,
+        default=0.5,
+        help="Factor multiplicador para la LR cuando --nan_behavior=reduce-lr",
+    )
+    parser.add_argument(
         "--grad_clip",
         type=float,
         default=1.0,
         help="Norma máxima para clipping de gradiente (None desactiva)",
+    )
+    parser.add_argument(
+        "--clip_grad_norm",
+        type=float,
+        dest="grad_clip",
+        help="Alias de --grad_clip para compatibilidad",
     )
 
     args = parser.parse_args()
@@ -372,6 +395,15 @@ def resolve_training_hparams(args: argparse.Namespace) -> None:
 
     if args.grad_clip is not None and args.grad_clip <= 0:
         args.grad_clip = None
+
+    if args.nan_lr_factor <= 0 or args.nan_lr_factor >= 1:
+        if args.nan_behavior == "reduce-lr":
+            print(
+                "[ADVERTENCIA] --nan_lr_factor debe estar entre 0 y 1. "
+                "Se usará el valor por defecto 0.5.",
+                file=sys.stderr,
+            )
+        args.nan_lr_factor = 0.5
 
     if args.gradient_checkpointing is None:
         if preset == "aura-72h-max":
@@ -1087,8 +1119,14 @@ def main() -> None:
         "hf_dataset_config": args.hf_dataset_config,
         "hf_dataset_split": args.hf_dataset_split,
         "auto_download": not args.skip_auto_download,
+        "nan_behavior": args.nan_behavior,
+        "nan_lr_factor": args.nan_lr_factor,
         **tokenizer_info,
     }
+    nan_events = 0
+    nan_triggered_stop = False
+    checkpoint_metadata["nan_events"] = nan_events
+    checkpoint_metadata["nan_triggered_stop"] = nan_triggered_stop
 
     def handle_interrupt(signum, frame):  # pragma: no cover - señal externa
         nonlocal stop_training
@@ -1119,13 +1157,79 @@ def main() -> None:
                     if device.type == "cuda"
                     else nullcontext()
                 )
-                with amp_context:
-                    logits = model(inputs)
-                    loss = F.cross_entropy(
-                        logits.view(-1, logits.size(-1)),
-                        labels.view(-1),
+                logits = None
+                loss = None
+                try:
+                    with amp_context:
+                        logits = model(inputs)
+                        loss = F.cross_entropy(
+                            logits.view(-1, logits.size(-1)),
+                            labels.view(-1),
+                        )
+                    loss_value = loss.item()
+                except RuntimeError as runtime_err:
+                    if "out of memory" in str(runtime_err).lower():
+                        progress_bar.write(
+                            f"[OOM detectado] paso global {global_step}, "
+                            f"época {epoch + 1}, batch {batch_idx}."
+                        )
+                        optimizer.zero_grad(set_to_none=True)
+                        micro_step = 0
+                        step_start_time = time.time()
+                        if device.type == "cuda":
+                            torch.cuda.empty_cache()
+                        del inputs, labels
+                        if logits is not None:
+                            del logits
+                        if loss is not None:
+                            del loss
+                        continue
+                    raise
+
+                if not math.isfinite(loss_value):
+                    nan_events += 1
+                    checkpoint_metadata["nan_events"] = nan_events
+                    message = (
+                        f"[NaN detectado] paso global {global_step}, "
+                        f"época {epoch + 1}, batch {batch_idx}."
                     )
-                loss_value = loss.item()
+                    progress_bar.write(message)
+                    optimizer.zero_grad(set_to_none=True)
+                    micro_step = 0
+                    step_start_time = time.time()
+                    if device.type == "cuda":
+                        torch.cuda.empty_cache()
+
+                    if args.nan_behavior == "reduce-lr":
+                        lr_changes = []
+                        for group in optimizer.param_groups:
+                            old_lr = group["lr"]
+                            new_lr = old_lr * args.nan_lr_factor
+                            group["lr"] = new_lr
+                            if "initial_lr" in group:
+                                group["initial_lr"] = group["initial_lr"] * args.nan_lr_factor
+                            lr_changes.append((old_lr, new_lr))
+                        if scheduler is not None and hasattr(scheduler, "base_lrs"):
+                            scheduler.base_lrs = [
+                                lr * args.nan_lr_factor for lr in scheduler.base_lrs
+                            ]
+                        progress_bar.write(
+                            "    LR reducida tras NaN: "
+                            + ", ".join(
+                                f"{old:.2e}->{new:.2e}" for old, new in lr_changes
+                            )
+                        )
+                    elif args.nan_behavior == "stop":
+                        stop_training = True
+                        nan_triggered_stop = True
+                        checkpoint_metadata["nan_triggered_stop"] = nan_triggered_stop
+                        del inputs, labels, logits, loss
+                        break
+
+                    del logits, loss
+                    del inputs, labels
+                    continue
+
                 loss = loss / args.gradient_accumulation_steps
 
                 scaler.scale(loss).backward()
@@ -1180,6 +1284,9 @@ def main() -> None:
 
                     if stop_training:
                         break
+
+            if stop_training and nan_triggered_stop:
+                break
 
             train_loss = float(sum(epoch_losses) / max(len(epoch_losses), 1))
             if not stop_training and micro_step > 0:
@@ -1257,6 +1364,20 @@ def main() -> None:
                 extra_metadata=checkpoint_metadata,
             )
 
+    if nan_triggered_stop:
+        print(
+            "Entrenamiento detenido por pérdida no finita. "
+            "Considera reducir el learning rate, activar clipping de gradiente o "
+            "usar --nan_behavior reduce-lr/skip.",
+            flush=True,
+        )
+    elif nan_events > 0:
+        print(
+            f"Se detectaron {nan_events} microbatches con pérdida no finita; "
+            f"acción aplicada: {args.nan_behavior}.",
+            flush=True,
+        )
+
     total_elapsed = time.time() - step_start_time
     steps_completed = max(global_step - initial_global_step, 0)
     tokens_trained = steps_completed * tokens_per_step
@@ -1290,6 +1411,9 @@ def main() -> None:
                 "gradient_checkpointing": args.gradient_checkpointing,
                 "effective_batch_size": effective_batch,
                 "tokens_per_step": tokens_per_step,
+                "nan_behavior": args.nan_behavior,
+                "nan_lr_factor": args.nan_lr_factor,
+                "nan_events": nan_events,
                 "steps_completed": steps_completed,
                 "dataset_file": str(dataset_file),
                 **tokenizer_info,

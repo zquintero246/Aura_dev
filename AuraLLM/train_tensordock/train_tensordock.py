@@ -115,6 +115,8 @@ HF_DATASET_PRESETS: Dict[str, Dict[str, object]] = {
 TOKENIZE_CHUNK_SIZE = 10_000
 TOKEN_CACHE_FILENAME = "dataset_tokens.pt"
 _TOKEN_CACHE_PATH: Optional[Path] = None
+NAN_MIN_LR_DEFAULT = 1e-7
+NAN_PATIENCE_DEFAULT = 5
 
 
 def parse_args() -> argparse.Namespace:
@@ -276,6 +278,24 @@ def parse_args() -> argparse.Namespace:
         help="Factor multiplicador para la LR cuando --nan_behavior=reduce-lr",
     )
     parser.add_argument(
+        "--nan_min_lr",
+        type=float,
+        default=NAN_MIN_LR_DEFAULT,
+        help=(
+            "Límite inferior para la LR cuando --nan_behavior=reduce-lr."
+            " Evita que la tasa de aprendizaje llegue a cero."
+        ),
+    )
+    parser.add_argument(
+        "--nan_patience",
+        type=int,
+        default=NAN_PATIENCE_DEFAULT,
+        help=(
+            "Número máximo de batches consecutivos con NaN permitidos antes de detener"
+            " el entrenamiento. Solo aplica cuando la acción no es 'stop'."
+        ),
+    )
+    parser.add_argument(
         "--grad_clip",
         type=float,
         default=1.0,
@@ -404,6 +424,20 @@ def resolve_training_hparams(args: argparse.Namespace) -> None:
                 file=sys.stderr,
             )
         args.nan_lr_factor = 0.5
+
+    if args.nan_min_lr is not None and args.nan_min_lr <= 0:
+        if args.nan_behavior == "reduce-lr":
+            print(
+                "[ADVERTENCIA] --nan_min_lr debe ser mayor que 0. "
+                "Se usará el valor por defecto 1e-7.",
+                file=sys.stderr,
+            )
+        args.nan_min_lr = NAN_MIN_LR_DEFAULT
+
+    args.nan_patience = max(1, int(args.nan_patience))
+
+    if args.nan_behavior != "reduce-lr":
+        args.nan_min_lr = max(args.nan_min_lr, 0.0)
 
     if args.gradient_checkpointing is None:
         if preset == "aura-72h-max":
@@ -633,13 +667,39 @@ def prepare_tokenizer(
 ) -> Tuple[PreTrainedTokenizerBase, Dict[str, object]]:
     if args.tokenizer_name_or_path.lower() == "auto":
         tokenizer_dir = args.output_dir / "tokenizer"
+        reused = False
+        if tokenizer_dir.exists():
+            try:
+                tokenizer = load_tokenizer(str(tokenizer_dir))
+                reused = True
+                print(
+                    f"Reutilizando tokenizer existente en {tokenizer_dir}",
+                    flush=True,
+                )
+                return tokenizer, {
+                    "tokenizer_source": "auto",
+                    "tokenizer_dir": str(tokenizer_dir),
+                    "tokenizer_reused": True,
+                }
+            except Exception as exc:
+                print(
+                    "No se pudo reutilizar el tokenizer existente. "
+                    "Se volverá a entrenar desde el corpus.",
+                    flush=True,
+                )
+                if os.environ.get("AURA_DEBUG"):
+                    print(f"Motivo del fallo al cargar tokenizer: {exc}")
         tokenizer = train_tokenizer_from_corpus(
             dataset_path,
             args.tokenizer_vocab_size,
             args.tokenizer_min_frequency,
             tokenizer_dir,
         )
-        return tokenizer, {"tokenizer_source": "auto", "tokenizer_dir": str(tokenizer_dir)}
+        return tokenizer, {
+            "tokenizer_source": "auto",
+            "tokenizer_dir": str(tokenizer_dir),
+            "tokenizer_reused": reused,
+        }
 
     tokenizer = load_tokenizer(args.tokenizer_name_or_path)
     saved_dir = args.output_dir / "tokenizer"
@@ -647,6 +707,7 @@ def prepare_tokenizer(
     return tokenizer, {
         "tokenizer_source": args.tokenizer_name_or_path,
         "tokenizer_dir": str(saved_dir),
+        "tokenizer_reused": False,
     }
 
 
@@ -1091,6 +1152,8 @@ def main() -> None:
     start_epoch = 0
     global_step = 0
 
+    restored_metadata: Dict[str, object] = {}
+
     if args.resume_from is not None:
         print(f"Reanudando desde {args.resume_from}", flush=True)
         checkpoint = torch.load(args.resume_from, map_location=device)
@@ -1101,9 +1164,40 @@ def main() -> None:
         start_epoch = checkpoint.get("epoch", 0)
         if scheduler is not None and checkpoint.get("scheduler_state_dict") is not None:
             scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-        extra = checkpoint.get("extra_metadata") or {}
-        if extra:
-            print(f"Metadatos restaurados: {extra}", flush=True)
+        restored_metadata = checkpoint.get("extra_metadata") or {}
+        if restored_metadata:
+            print(f"Metadatos restaurados: {restored_metadata}", flush=True)
+            if args.nan_behavior == "reduce-lr":
+                restored_min_lr = restored_metadata.get("nan_min_lr")
+                try:
+                    restored_min_lr_value = float(restored_min_lr)
+                except (TypeError, ValueError):
+                    restored_min_lr_value = None
+                if (
+                    restored_min_lr_value is not None
+                    and math.isfinite(restored_min_lr_value)
+                    and math.isclose(
+                        args.nan_min_lr,
+                        NAN_MIN_LR_DEFAULT,
+                        rel_tol=0.0,
+                        abs_tol=1e-12,
+                    )
+                ):
+                    args.nan_min_lr = max(
+                        restored_min_lr_value,
+                        NAN_MIN_LR_DEFAULT,
+                    )
+            restored_patience = restored_metadata.get("nan_patience")
+            if restored_patience is not None:
+                try:
+                    restored_patience_int = max(1, int(restored_patience))
+                except (TypeError, ValueError):
+                    restored_patience_int = None
+                if (
+                    restored_patience_int is not None
+                    and args.nan_patience == NAN_PATIENCE_DEFAULT
+                ):
+                    args.nan_patience = restored_patience_int
         model.train()
 
     initial_global_step = global_step
@@ -1121,12 +1215,16 @@ def main() -> None:
         "auto_download": not args.skip_auto_download,
         "nan_behavior": args.nan_behavior,
         "nan_lr_factor": args.nan_lr_factor,
+        "nan_min_lr": args.nan_min_lr,
+        "nan_patience": args.nan_patience,
         **tokenizer_info,
     }
-    nan_events = 0
-    nan_triggered_stop = False
+    nan_events = int(restored_metadata.get("nan_events", 0))
+    nan_triggered_stop = bool(restored_metadata.get("nan_triggered_stop", False))
+    last_nan_adjust_step = int(restored_metadata.get("last_nan_adjust_step", -1))
     checkpoint_metadata["nan_events"] = nan_events
     checkpoint_metadata["nan_triggered_stop"] = nan_triggered_stop
+    checkpoint_metadata["last_nan_adjust_step"] = last_nan_adjust_step
 
     def handle_interrupt(signum, frame):  # pragma: no cover - señal externa
         nonlocal stop_training
@@ -1139,6 +1237,7 @@ def main() -> None:
     micro_step = 0
     optimizer.zero_grad(set_to_none=True)
     step_start_time = time.time()
+    consecutive_nan_batches = 0
 
     try:
         for epoch in range(start_epoch, args.epochs):
@@ -1188,6 +1287,7 @@ def main() -> None:
 
                 if not math.isfinite(loss_value):
                     nan_events += 1
+                    consecutive_nan_batches += 1
                     checkpoint_metadata["nan_events"] = nan_events
                     message = (
                         f"[NaN detectado] paso global {global_step}, "
@@ -1201,34 +1301,87 @@ def main() -> None:
                         torch.cuda.empty_cache()
 
                     if args.nan_behavior == "reduce-lr":
-                        lr_changes = []
-                        for group in optimizer.param_groups:
-                            old_lr = group["lr"]
-                            new_lr = old_lr * args.nan_lr_factor
-                            group["lr"] = new_lr
-                            if "initial_lr" in group:
-                                group["initial_lr"] = group["initial_lr"] * args.nan_lr_factor
-                            lr_changes.append((old_lr, new_lr))
-                        if scheduler is not None and hasattr(scheduler, "base_lrs"):
-                            scheduler.base_lrs = [
-                                lr * args.nan_lr_factor for lr in scheduler.base_lrs
-                            ]
-                        progress_bar.write(
-                            "    LR reducida tras NaN: "
-                            + ", ".join(
-                                f"{old:.2e}->{new:.2e}" for old, new in lr_changes
+                        if last_nan_adjust_step == global_step:
+                            current_lr = optimizer.param_groups[0]["lr"]
+                            progress_bar.write(
+                                f"    LR ya ajustada en este paso (actual {current_lr:.2e})."
                             )
-                        )
+                        else:
+                            lr_changes = []
+                            adjustment_applied = False
+                            for group in optimizer.param_groups:
+                                old_lr = float(group.get("lr", 0.0))
+                                target_lr = old_lr * args.nan_lr_factor
+                                new_lr = max(target_lr, args.nan_min_lr)
+                                if not math.isfinite(new_lr):
+                                    new_lr = args.nan_min_lr
+                                if "initial_lr" in group:
+                                    group["initial_lr"] = new_lr
+                                group["lr"] = new_lr
+                                lr_changes.append((old_lr, new_lr))
+                                if not math.isclose(
+                                    old_lr,
+                                    new_lr,
+                                    rel_tol=1e-6,
+                                    abs_tol=max(args.nan_min_lr, 1e-12),
+                                ):
+                                    adjustment_applied = True
+                            if scheduler is not None and hasattr(scheduler, "base_lrs"):
+                                scheduler.base_lrs = [
+                                    group["lr"] for group in optimizer.param_groups
+                                ]
+                            if adjustment_applied:
+                                progress_bar.write(
+                                    "    LR reducida tras NaN: "
+                                    + ", ".join(
+                                        f"{old:.2e}->{new:.2e}" for old, new in lr_changes
+                                    )
+                                )
+                            else:
+                                progress_bar.write(
+                                    f"    La LR ya está en el mínimo permitido ({args.nan_min_lr:.2e})."
+                                )
+                            last_nan_adjust_step = global_step
+                            checkpoint_metadata["last_nan_adjust_step"] = (
+                                last_nan_adjust_step
+                            )
                     elif args.nan_behavior == "stop":
                         stop_training = True
+                    else:
+                        progress_bar.write(
+                            "    Batch con NaN descartado; se continuará."
+                        )
+
+                    terminate_training = stop_training
+                    if (
+                        not terminate_training
+                        and args.nan_behavior != "stop"
+                        and consecutive_nan_batches >= args.nan_patience
+                    ):
+                        progress_bar.write(
+                            "    Se alcanzó el límite de reintentos tras NaN; deteniendo entrenamiento."
+                        )
+                        terminate_training = True
+
+                    if terminate_training:
+                        stop_training = True
                         nan_triggered_stop = True
-                        checkpoint_metadata["nan_triggered_stop"] = nan_triggered_stop
-                        del inputs, labels, logits, loss
+                        checkpoint_metadata["nan_triggered_stop"] = True
+                        if logits is not None:
+                            del logits
+                        if loss is not None:
+                            del loss
+                        del inputs, labels
                         break
 
-                    del logits, loss
+                    if logits is not None:
+                        del logits
+                    if loss is not None:
+                        del loss
                     del inputs, labels
                     continue
+
+                consecutive_nan_batches = 0
 
                 loss = loss / args.gradient_accumulation_steps
 
@@ -1413,8 +1566,12 @@ def main() -> None:
                 "tokens_per_step": tokens_per_step,
                 "nan_behavior": args.nan_behavior,
                 "nan_lr_factor": args.nan_lr_factor,
+                "nan_min_lr": args.nan_min_lr,
+                "nan_patience": args.nan_patience,
                 "nan_events": nan_events,
+                "nan_triggered_stop": nan_triggered_stop,
                 "steps_completed": steps_completed,
+                "last_nan_adjust_step": last_nan_adjust_step,
                 "dataset_file": str(dataset_file),
                 **tokenizer_info,
             },

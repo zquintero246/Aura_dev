@@ -23,6 +23,11 @@ if __package__ is None or __package__ == "":
 import torch
 import torch.nn.functional as F
 from torch.cuda.amp import GradScaler, autocast
+
+if torch.cuda.is_available():
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.checkpoint import checkpoint_sequential
 from torch.utils.data import DataLoader
@@ -117,6 +122,7 @@ TOKEN_CACHE_FILENAME = "dataset_tokens.pt"
 _TOKEN_CACHE_PATH: Optional[Path] = None
 NAN_MIN_LR_DEFAULT = 1e-7
 NAN_PATIENCE_DEFAULT = 5
+GIB = 1024 ** 3
 
 
 def parse_args() -> argparse.Namespace:
@@ -237,10 +243,39 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42, help="Semilla para reproducibilidad")
     parser.add_argument("--num_workers", type=int, default=4, help="Workers de DataLoader")
     parser.add_argument(
+        "--auto_num_workers",
+        action="store_true",
+        help="Ajusta num_workers automáticamente según los núcleos disponibles",
+    )
+    parser.add_argument(
+        "--prefetch_factor",
+        type=int,
+        default=None,
+        help="Prefetch factor para DataLoader (requiere workers > 0)",
+    )
+    parser.add_argument(
         "--log_interval",
         type=int,
         default=50,
         help="Actualizar barra de progreso cada N pasos acumulados",
+    )
+    parser.add_argument(
+        "--limit_train_tokens",
+        type=int,
+        default=None,
+        help="Limita los tokens de entrenamiento tras el split (múltiplo de seq_length)",
+    )
+    parser.add_argument(
+        "--limit_val_tokens",
+        type=int,
+        default=None,
+        help="Limita los tokens de validación tras el split (múltiplo de seq_length)",
+    )
+    parser.add_argument(
+        "--target_hours",
+        type=float,
+        default=36.0,
+        help="Objetivo de duración total del entrenamiento en horas para optimizar el runtime",
     )
     parser.add_argument(
         "--gradient_checkpointing",
@@ -296,6 +331,33 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--precision",
+        type=str,
+        choices=("auto", "fp32", "fp16", "bf16"),
+        default="auto",
+        help=(
+            "Precisión de entrenamiento. 'auto' usa bf16 cuando esté disponible, "
+            "fp16 en otras GPUs y fp32 en CPU."
+        ),
+    )
+    parser.add_argument(
+        "--torch_compile",
+        action="store_true",
+        help="Compila el modelo con torch.compile para aumentar el throughput",
+    )
+    parser.add_argument(
+        "--compile_mode",
+        type=str,
+        default="reduce-overhead",
+        choices=("default", "reduce-overhead", "max-autotune"),
+        help="Modo de optimización para torch.compile",
+    )
+    parser.add_argument(
+        "--compile_fullgraph",
+        action="store_true",
+        help="Fuerza torch.compile(fullgraph=True) (puede tardar más en compilar)",
+    )
+    parser.add_argument(
         "--grad_clip",
         type=float,
         default=1.0,
@@ -316,6 +378,20 @@ def parse_args() -> argparse.Namespace:
             setattr(args, key, value)
 
     args.output_dir = args.output_dir.expanduser().resolve()
+
+    if args.auto_num_workers:
+        cpu_count = os.cpu_count() or 1
+        if cpu_count <= 2:
+            suggested_workers = 0
+        else:
+            suggested_workers = max(2, min(8, cpu_count // 2))
+        if suggested_workers != args.num_workers:
+            print(
+                "Ajuste automático de num_workers: "
+                f"{args.num_workers} -> {suggested_workers}",
+                flush=True,
+            )
+            args.num_workers = suggested_workers
 
     return args
 
@@ -406,7 +482,7 @@ def resolve_training_hparams(args: argparse.Namespace) -> None:
         else:
             args.learning_rate = 3e-4
     if args.save_steps is None:
-        args.save_steps = 500 if preset in {"aura-72h-max", "aura-72h-extended"} else 1000
+        args.save_steps = 2500 if preset in {"aura-72h-max", "aura-72h-extended"} else 1000
 
     args.batch_size = max(1, int(args.batch_size))
     args.gradient_accumulation_steps = max(1, int(args.gradient_accumulation_steps))
@@ -455,6 +531,197 @@ def resolve_training_hparams(args: argparse.Namespace) -> None:
 
     if args.gradient_checkpointing:
         args.checkpoint_segments = max(1, int(args.checkpoint_segments))
+
+
+def resolve_training_precision(args: argparse.Namespace, device: torch.device) -> None:
+    requested = (args.precision or "auto").lower()
+    resolved = requested
+
+    if requested == "auto":
+        if device.type == "cuda":
+            is_bf16_supported = bool(
+                getattr(torch.cuda, "is_bf16_supported", lambda: False)()
+            )
+            resolved = "bf16" if is_bf16_supported else "fp16"
+        else:
+            resolved = "fp32"
+    elif requested == "bf16":
+        if device.type != "cuda":
+            print(
+                "[ADVERTENCIA] bf16 no es compatible con el dispositivo actual; "
+                "se utilizará fp32.",
+                flush=True,
+            )
+            resolved = "fp32"
+        elif not getattr(torch.cuda, "is_bf16_supported", lambda: False)():
+            print(
+                "[ADVERTENCIA] La GPU no soporta bf16 nativo; se utilizará fp16.",
+                flush=True,
+            )
+            resolved = "fp16"
+    elif requested == "fp16" and device.type != "cuda":
+        print(
+            "[ADVERTENCIA] fp16 requiere GPU; se utilizará fp32.",
+            flush=True,
+        )
+        resolved = "fp32"
+
+    autocast_dtype = None
+    if device.type == "cuda" and resolved in {"fp16", "bf16"}:
+        autocast_dtype = torch.float16 if resolved == "fp16" else torch.bfloat16
+
+    args.precision = resolved
+    args.autocast_dtype = autocast_dtype
+    args.use_autocast = autocast_dtype is not None
+    args.use_grad_scaler = device.type == "cuda" and resolved == "fp16"
+
+
+def optimize_for_runtime(
+    args: argparse.Namespace,
+    device: torch.device,
+    train_tokens: int,
+    target_hours: float = 36.0,
+) -> Dict[str, float]:
+    """Ajusta batch, acumulación y checkpointing para cumplir el objetivo temporal."""
+
+    runtime_info: Dict[str, float] = {
+        "target_hours": float(max(target_hours, 1e-3)),
+        "device_type": device.type,
+    }
+
+    if target_hours <= 0:
+        target_hours = 36.0
+
+    required_tokens_per_sec = (
+        train_tokens / (target_hours * 3600)
+        if target_hours > 0 and train_tokens > 0
+        else 0.0
+    )
+    runtime_info["required_tokens_per_sec"] = required_tokens_per_sec
+
+    if device.type != "cuda":
+        return runtime_info
+
+    # Medir VRAM libre antes de decidir batch/accum.
+    with torch.cuda.device(device):
+        free_bytes, total_bytes = torch.cuda.mem_get_info()
+    free_gb = free_bytes / GIB
+    total_gb = total_bytes / GIB
+    runtime_info["gpu_free_gb"] = round(free_gb, 2)
+    runtime_info["gpu_total_gb"] = round(total_gb, 2)
+
+    base_batch = max(1, int(args.batch_size))
+    base_accum = max(1, int(args.gradient_accumulation_steps))
+
+    print(
+        f"Memoria libre detectada: {free_gb:.2f} GiB de {total_gb:.2f} GiB totales",
+        flush=True,
+    )
+
+    # Ajustar el batch efectivo deseado según la ventana de memoria libre.
+    target_effective = 144.0
+    if free_gb < 60:
+        target_effective = 112.0
+    elif free_gb > 70:
+        target_effective = 160.0
+
+    max_micro_batch = base_batch
+    if free_gb > 0:
+        max_micro_batch = max(
+            base_batch,
+            min(16, max(1, int(free_gb // 8))),
+        )
+    if free_gb > 70:
+        max_micro_batch = max(
+            max_micro_batch,
+            base_batch + int(max(1.0, (free_gb - 70) / 2.0)),
+        )
+
+    desired_batch = min(
+        max_micro_batch,
+        max(base_batch, int(math.ceil(target_effective / base_accum))),
+    )
+    proposed_batch = max(1, desired_batch)
+
+    proposed_grad_accum = max(1, int(round(target_effective / proposed_batch)))
+
+    if free_gb < 60:
+        proposed_grad_accum = max(1, min(proposed_grad_accum, max(4, base_accum // 2)))
+
+    effective = proposed_batch * proposed_grad_accum
+    if free_gb >= 60:
+        if effective < 128:
+            proposed_grad_accum = math.ceil(128 / proposed_batch)
+        elif effective > 160:
+            proposed_grad_accum = max(1, math.floor(160 / proposed_batch))
+    else:
+        if effective > 112:
+            proposed_grad_accum = max(1, math.floor(112 / proposed_batch))
+
+    proposed_grad_accum = max(1, proposed_grad_accum)
+    effective = proposed_batch * proposed_grad_accum
+
+    if free_gb > 70:
+        proposed_grad_accum = max(proposed_grad_accum, base_accum)
+        effective = proposed_batch * proposed_grad_accum
+        if effective > 160:
+            proposed_grad_accum = max(1, math.floor(160 / proposed_batch))
+            effective = proposed_batch * proposed_grad_accum
+
+    # Reducir segmentos de checkpointing si la VRAM extra lo permite.
+    if args.gradient_checkpointing:
+        if free_gb > 70:
+            target_segments = max(2, args.num_layers // 4)
+        elif free_gb > 60:
+            target_segments = max(4, args.num_layers // 3)
+        else:
+            target_segments = args.checkpoint_segments
+        if target_segments < args.checkpoint_segments:
+            print(
+                "Reduciendo checkpoint_segments para aprovechar más VRAM: "
+                f"{args.checkpoint_segments} -> {target_segments}",
+                flush=True,
+            )
+            args.checkpoint_segments = target_segments
+
+    adjustments = []
+    if proposed_batch != base_batch:
+        adjustments.append(f"batch_size {base_batch} -> {proposed_batch}")
+    if proposed_grad_accum != base_accum:
+        adjustments.append(
+            f"gradient_accumulation_steps {base_accum} -> {proposed_grad_accum}"
+        )
+
+    args.batch_size = proposed_batch
+    args.gradient_accumulation_steps = proposed_grad_accum
+    args.save_steps = max(2500, int(args.save_steps))
+
+    effective = args.batch_size * args.gradient_accumulation_steps
+    tokens_per_step = effective * args.seq_length
+    runtime_info["effective_batch"] = effective
+    runtime_info["tokens_per_step"] = tokens_per_step
+
+    estimated_steps = math.ceil(train_tokens / max(tokens_per_step, 1))
+    runtime_info["estimated_optimizer_steps"] = estimated_steps
+
+    if required_tokens_per_sec > 0:
+        runtime_info["required_step_time"] = tokens_per_step / required_tokens_per_sec
+
+    if adjustments:
+        print(
+            "Optimizaciones de runtime aplicadas: " + ", ".join(adjustments),
+            flush=True,
+        )
+    else:
+        print("Optimizaciones de runtime: configuración base conservada", flush=True)
+
+    print(
+        "Objetivo de throughput: "
+        f"{required_tokens_per_sec:,.0f} tok/s para cumplir {target_hours:.1f} h",
+        flush=True,
+    )
+
+    return runtime_info
 
 
 def finalize_warmup(args: argparse.Namespace, total_optimizer_steps: int) -> None:
@@ -859,16 +1126,35 @@ def tokenize_corpus(
     return token_ids
 
 
+def _limit_tokens(
+    token_slice: torch.Tensor, seq_length: int, limit: Optional[int]
+) -> torch.Tensor:
+    if limit is None or limit <= 0 or limit >= token_slice.numel():
+        return token_slice
+    if limit < seq_length + 1:
+        return token_slice
+    trimmed = (limit // seq_length) * seq_length
+    if trimmed <= seq_length:
+        return token_slice
+    max_available = max(0, token_slice.numel() - 1)
+    trimmed = min(trimmed, max_available)
+    keep = max(seq_length + 1, trimmed + 1)
+    return token_slice[:keep]
+
+
 def prepare_datasets(
     token_ids: torch.Tensor,
     seq_length: int,
     validation_split: float,
+    train_token_limit: Optional[int] = None,
+    val_token_limit: Optional[int] = None,
 ) -> Tuple[SpanishCorpus, Optional[SpanishCorpus]]:
     if len(token_ids) <= seq_length:
         raise ValueError("El corpus es demasiado pequeño para el seq_length especificado")
 
     if validation_split <= 0 or validation_split >= 1:
-        train_dataset = SpanishCorpus(token_ids, seq_length)
+        train_slice = _limit_tokens(token_ids, seq_length, train_token_limit)
+        train_dataset = SpanishCorpus(train_slice, seq_length)
         return train_dataset, None
 
     val_tokens = int(len(token_ids) * validation_split)
@@ -877,8 +1163,8 @@ def prepare_datasets(
     if train_tokens <= seq_length:
         raise ValueError("validation_split demasiado grande para el tamaño del corpus")
 
-    train_ids = token_ids[:train_tokens]
-    val_ids = token_ids[train_tokens:]
+    train_ids = _limit_tokens(token_ids[:train_tokens], seq_length, train_token_limit)
+    val_ids = _limit_tokens(token_ids[train_tokens:], seq_length, val_token_limit)
     return SpanishCorpus(train_ids, seq_length), SpanishCorpus(val_ids, seq_length)
 
 
@@ -897,6 +1183,32 @@ def create_model(
     )
     model = GPT2(config)
     model.to(device)
+
+    if args.torch_compile:
+        if not hasattr(torch, "compile"):
+            print(
+                "torch.compile no está disponible en esta versión de PyTorch; "
+                "continuando sin compilar.",
+                flush=True,
+            )
+        else:
+            compile_kwargs = {"mode": args.compile_mode}
+            if args.compile_fullgraph:
+                compile_kwargs["fullgraph"] = True
+            try:
+                model = torch.compile(model, **compile_kwargs)
+                print(
+                    "Modelo compilado con torch.compile "
+                    f"(modo={args.compile_mode}, fullgraph={args.compile_fullgraph}).",
+                    flush=True,
+                )
+            except Exception as compile_error:  # pragma: no cover - dependiente del backend
+                print(
+                    "No se pudo compilar el modelo con torch.compile: "
+                    f"{compile_error}. Se continúa sin compilación.",
+                    flush=True,
+                )
+
     return model, config
 
 
@@ -935,7 +1247,7 @@ def save_checkpoint(
         {
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
-            "scaler_state_dict": scaler.state_dict(),
+            "scaler_state_dict": scaler.state_dict() if scaler.is_enabled() else None,
             "global_step": step,
             "epoch": epoch,
             "config": config.__dict__,
@@ -984,6 +1296,8 @@ def evaluate(
     model: GPT2,
     dataloader: DataLoader,
     device: torch.device,
+    use_autocast: bool = False,
+    autocast_dtype: Optional[torch.dtype] = None,
 ) -> float:
     model.eval()
     total_loss = 0.0
@@ -992,11 +1306,15 @@ def evaluate(
         for inputs, labels in dataloader:
             inputs = inputs.to(device)
             labels = labels.to(device)
-            logits = model(inputs)
-            loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)),
-                labels.view(-1),
+            amp_context = (
+                autocast(dtype=autocast_dtype) if use_autocast else nullcontext()
             )
+            with amp_context:
+                logits = model(inputs)
+                loss = F.cross_entropy(
+                    logits.view(-1, logits.size(-1)),
+                    labels.view(-1),
+                )
             total_loss += loss.item()
             total_batches += 1
     model.train()
@@ -1031,6 +1349,7 @@ def main() -> None:
     tokenizer_info["tokenizer_pad_token"] = tokenizer.pad_token
     apply_model_preset(args, total_mem_gb)
     resolve_training_hparams(args)
+    resolve_training_precision(args, device)
 
     global _TOKEN_CACHE_PATH
     _TOKEN_CACHE_PATH = args.output_dir / TOKEN_CACHE_FILENAME
@@ -1049,7 +1368,13 @@ def main() -> None:
         )
     else:
         token_ids = tokenize_corpus(tokenizer, read_corpus(dataset_file))
-    train_dataset, val_dataset = prepare_datasets(token_ids, args.seq_length, args.validation_split)
+    train_dataset, val_dataset = prepare_datasets(
+        token_ids,
+        args.seq_length,
+        args.validation_split,
+        train_token_limit=args.limit_train_tokens,
+        val_token_limit=args.limit_val_tokens,
+    )
 
     train_tokens = getattr(train_dataset, "effective_token_count", len(train_dataset.text))
     val_tokens = (
@@ -1062,28 +1387,45 @@ def main() -> None:
         f"Tokens disponibles -> entrenamiento: {train_tokens:,} | validación: {val_tokens:,} | total: {total_tokens:,}",
         flush=True,
     )
+    if args.limit_train_tokens is not None:
+        print(
+            "    Límite aplicado en entrenamiento: "
+            f"{args.limit_train_tokens:,} tokens solicitados",
+            flush=True,
+        )
+    if args.limit_val_tokens is not None and val_dataset is not None:
+        print(
+            "    Límite aplicado en validación: "
+            f"{args.limit_val_tokens:,} tokens solicitados",
+            flush=True,
+        )
 
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        drop_last=False,
-        num_workers=args.num_workers,
-        pin_memory=device.type == "cuda",
-        persistent_workers=args.num_workers > 0,
+    # Ajuste automático de parámetros para cumplir el presupuesto temporal.
+    runtime_info = optimize_for_runtime(
+        args,
+        device,
+        train_tokens=train_tokens,
+        target_hours=args.target_hours,
     )
+
+    dataloader_kwargs = {
+        "batch_size": args.batch_size,
+        "shuffle": True,
+        "drop_last": False,
+        "num_workers": args.num_workers,
+        "pin_memory": device.type == "cuda",
+        "persistent_workers": args.num_workers > 0,
+    }
+    if args.num_workers > 0 and args.prefetch_factor is not None:
+        dataloader_kwargs["prefetch_factor"] = max(1, args.prefetch_factor)
+
+    train_loader = DataLoader(train_dataset, **dataloader_kwargs)
 
     val_loader = None
     if val_dataset is not None:
-        val_loader = DataLoader(
-            val_dataset,
-            batch_size=args.batch_size,
-            shuffle=False,
-            drop_last=False,
-            num_workers=args.num_workers,
-            pin_memory=device.type == "cuda",
-            persistent_workers=args.num_workers > 0,
-        )
+        val_kwargs = dataloader_kwargs.copy()
+        val_kwargs["shuffle"] = False
+        val_loader = DataLoader(val_dataset, **val_kwargs)
 
     micro_batches_per_epoch = len(train_loader)
     if micro_batches_per_epoch == 0:
@@ -1093,6 +1435,8 @@ def main() -> None:
         micro_batches_per_epoch / args.gradient_accumulation_steps
     )
     total_optimizer_steps = optimizer_steps_per_epoch * args.epochs
+    runtime_info["optimizer_steps_per_epoch"] = optimizer_steps_per_epoch
+    runtime_info["micro_batches_per_epoch"] = micro_batches_per_epoch
     finalize_warmup(args, total_optimizer_steps)
 
     effective_batch = args.batch_size * args.gradient_accumulation_steps
@@ -1113,6 +1457,12 @@ def main() -> None:
         f"total pasos={total_optimizer_steps}, warmup={args.warmup_steps}",
         flush=True,
     )
+    required_step_time = runtime_info.get("required_step_time")
+    if required_step_time:
+        print(
+            f"Tiempo objetivo por paso: {required_step_time:.2f} s para completar en {args.target_hours:.1f} h",
+            flush=True,
+        )
 
     model, config = create_model(len(tokenizer), args, device)
     if args.gradient_checkpointing:
@@ -1122,7 +1472,17 @@ def main() -> None:
             flush=True,
         )
 
+    if args.use_autocast:
+        precision_label = f"autocast {str(args.autocast_dtype).split('.')[-1]}"
+    else:
+        precision_label = args.precision
+    print(f"Modo de precisión: {precision_label}", flush=True)
+
     model.train()
+    if device.type == "cuda":
+        # Reiniciar contadores para reportar el pico de VRAM del entrenamiento.
+        torch.cuda.reset_peak_memory_stats(device)
+    max_vram_gb = 0.0
     num_params = sum(p.numel() for p in model.parameters())
     print(
         f"Parámetros del modelo: {num_params/1e9:.2f}B ({num_params:,} parámetros)",
@@ -1130,7 +1490,7 @@ def main() -> None:
     )
 
     optimizer = create_optimizer(model, args.learning_rate, args.weight_decay)
-    scaler = GradScaler(enabled=device.type == "cuda")
+    scaler = GradScaler(enabled=args.use_grad_scaler)
 
     scheduler = None
     if args.warmup_steps and args.warmup_steps > 0:
@@ -1159,7 +1519,21 @@ def main() -> None:
         checkpoint = torch.load(args.resume_from, map_location=device)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        scaler.load_state_dict(checkpoint["scaler_state_dict"])
+        scaler_state = checkpoint.get("scaler_state_dict")
+        if scaler.is_enabled():
+            if scaler_state:
+                scaler.load_state_dict(scaler_state)
+            else:
+                print(
+                    "[AVISO] El checkpoint no contenía estado del GradScaler; se reiniciará.",
+                    flush=True,
+                )
+        elif scaler_state:
+            print(
+                "[AVISO] Se ignoró el estado del GradScaler del checkpoint porque "
+                "la precisión actual no usa escalado.",
+                flush=True,
+            )
         global_step = checkpoint.get("global_step", 0)
         start_epoch = checkpoint.get("epoch", 0)
         if scheduler is not None and checkpoint.get("scheduler_state_dict") is not None:
@@ -1198,6 +1572,17 @@ def main() -> None:
                     and args.nan_patience == NAN_PATIENCE_DEFAULT
                 ):
                     args.nan_patience = restored_patience_int
+            restored_precision = restored_metadata.get("precision")
+            if (
+                isinstance(restored_precision, str)
+                and restored_precision
+                and restored_precision != args.precision
+            ):
+                print(
+                    "[AVISO] El checkpoint se entrenó con precisión "
+                    f"{restored_precision}; precisión actual: {args.precision}.",
+                    flush=True,
+                )
         model.train()
 
     initial_global_step = global_step
@@ -1217,8 +1602,21 @@ def main() -> None:
         "nan_lr_factor": args.nan_lr_factor,
         "nan_min_lr": args.nan_min_lr,
         "nan_patience": args.nan_patience,
+        "precision": args.precision,
+        "autocast_dtype": str(args.autocast_dtype) if args.autocast_dtype else None,
+        "limit_train_tokens": args.limit_train_tokens,
+        "limit_val_tokens": args.limit_val_tokens,
+        "torch_compile": args.torch_compile,
+        "compile_mode": args.compile_mode,
+        "compile_fullgraph": args.compile_fullgraph,
+        "num_workers": args.num_workers,
+        "prefetch_factor": args.prefetch_factor,
         **tokenizer_info,
     }
+    checkpoint_metadata["optimizer_steps_per_epoch"] = optimizer_steps_per_epoch
+    checkpoint_metadata["micro_batches_per_epoch"] = micro_batches_per_epoch
+    for key, value in runtime_info.items():
+        checkpoint_metadata[f"runtime_{key}"] = value
     nan_events = int(restored_metadata.get("nan_events", 0))
     nan_triggered_stop = bool(restored_metadata.get("nan_triggered_stop", False))
     last_nan_adjust_step = int(restored_metadata.get("last_nan_adjust_step", -1))
@@ -1244,16 +1642,17 @@ def main() -> None:
             if stop_training:
                 break
             epoch_losses = []
+            epoch_start_time = time.time()
             progress_bar = tqdm(train_loader, desc=f"Época {epoch + 1}/{args.epochs}", leave=False)
             for batch_idx, (inputs, labels) in enumerate(progress_bar):
                 if stop_training:
                     break
-                inputs = inputs.to(device)
-                labels = labels.to(device)
+                inputs = inputs.to(device, non_blocking=True)
+                labels = labels.to(device, non_blocking=True)
 
                 amp_context = (
-                    autocast(dtype=torch.float16)
-                    if device.type == "cuda"
+                    autocast(dtype=args.autocast_dtype)
+                    if args.use_autocast
                     else nullcontext()
                 )
                 logits = None
@@ -1391,7 +1790,8 @@ def main() -> None:
 
                 if micro_step == args.gradient_accumulation_steps:
                     if args.grad_clip is not None:
-                        scaler.unscale_(optimizer)
+                        if scaler.is_enabled():
+                            scaler.unscale_(optimizer)
                         clip_grad_norm_(model.parameters(), args.grad_clip)
                     scaler.step(optimizer)
                     scaler.update()
@@ -1410,14 +1810,40 @@ def main() -> None:
                     avg_tokens_per_sec = (
                         tokens_per_step / avg_step_time if avg_step_time > 0 else 0.0
                     )
+                    # Calcular métricas online para estimar ETA total/por época.
+                    epoch_elapsed = time.time() - epoch_start_time
+                    micro_done = batch_idx + 1
+                    micro_remaining = max(micro_batches_per_epoch - micro_done, 0)
+                    avg_micro_time = epoch_elapsed / max(micro_done, 1)
+                    epoch_eta_seconds = avg_micro_time * micro_remaining
+                    epoch_eta = format_time(epoch_eta_seconds)
+                    current_alloc_gb = 0.0
+                    if device.type == "cuda":
+                        # Registrar VRAM actual y pico para depuración posterior.
+                        with torch.cuda.device(device):
+                            current_alloc = torch.cuda.memory_allocated()
+                            peak_alloc = torch.cuda.max_memory_allocated()
+                        current_alloc_gb = current_alloc / GIB
+                        max_vram_gb = max(max_vram_gb, peak_alloc / GIB)
+                        checkpoint_metadata["max_vram_gb"] = max_vram_gb
+                    checkpoint_metadata["last_tokens_per_sec"] = avg_tokens_per_sec
+                    checkpoint_metadata["last_eta_total"] = eta
 
                     if args.log_interval > 0 and global_step % args.log_interval == 0:
                         current_lr = optimizer.param_groups[0]["lr"]
                         progress_bar.set_postfix(
                             loss=f"{loss_value:.4f}",
                             lr=f"{current_lr:.2e}",
-                            eta=eta,
+                            eta_total=eta,
+                            eta_epoch=epoch_eta,
                             toks=f"{avg_tokens_per_sec:,.0f}",
+                            vram=f"{current_alloc_gb:.1f}G",
+                        )
+                        # Emitir log textual para trazabilidad fuera de la barra de progreso.
+                        progress_bar.write(
+                            f"[Paso {global_step}] loss={loss_value:.4f} | lr={current_lr:.2e} "
+                            f"| tok/s={avg_tokens_per_sec:,.0f} | VRAM={current_alloc_gb:.1f} GiB "
+                            f"| ETA total={eta} | ETA época={epoch_eta}"
                         )
 
                     if args.save_steps and global_step % args.save_steps == 0:
@@ -1444,7 +1870,8 @@ def main() -> None:
             train_loss = float(sum(epoch_losses) / max(len(epoch_losses), 1))
             if not stop_training and micro_step > 0:
                 if args.grad_clip is not None:
-                    scaler.unscale_(optimizer)
+                    if scaler.is_enabled():
+                        scaler.unscale_(optimizer)
                     clip_grad_norm_(model.parameters(), args.grad_clip)
                 scaler.step(optimizer)
                 scaler.update()
@@ -1469,7 +1896,13 @@ def main() -> None:
                 micro_step = 0
             val_loss = None
             if val_loader is not None:
-                val_loss = evaluate(model, val_loader, device)
+                val_loss = evaluate(
+                    model,
+                    val_loader,
+                    device,
+                    use_autocast=args.use_autocast,
+                    autocast_dtype=args.autocast_dtype,
+                )
 
             save_training_log(log_path, epoch + 1, train_loss, val_loss)
             print(
@@ -1537,11 +1970,35 @@ def main() -> None:
     avg_tokens_per_sec = (
         tokens_trained / total_elapsed if total_elapsed > 0 else 0.0
     )
+    checkpoint_metadata["final_tokens_trained"] = tokens_trained
+    checkpoint_metadata["final_tokens_per_sec"] = avg_tokens_per_sec
+    checkpoint_metadata["max_vram_gb"] = max_vram_gb
+    if not stop_training:
+        # Guardar un último checkpoint aún cuando el cierre sea ordenado.
+        final_epoch = locals().get("epoch", args.epochs - 1)
+        save_checkpoint(
+            args.output_dir,
+            model,
+            optimizer,
+            scaler,
+            tokenizer,
+            global_step,
+            final_epoch,
+            config,
+            f"final-step-{global_step}",
+            scheduler.state_dict() if scheduler is not None else None,
+            extra_metadata=checkpoint_metadata,
+        )
     print(
         f"Pasos completados: {steps_completed} | tokens vistos: {tokens_trained:,} | "
         f"tiempo transcurrido: {format_time(total_elapsed)} | throughput medio: {avg_tokens_per_sec:,.0f} tok/s",
         flush=True,
     )
+    if device.type == "cuda":
+        print(
+            f"Uso máximo de VRAM registrado: {max_vram_gb:.2f} GiB",
+            flush=True,
+        )
 
     final_model_path = args.output_dir / "final_model.pt"
     torch.save(model.state_dict(), final_model_path)
@@ -1564,6 +2021,11 @@ def main() -> None:
                 "gradient_checkpointing": args.gradient_checkpointing,
                 "effective_batch_size": effective_batch,
                 "tokens_per_step": tokens_per_step,
+                "optimizer_steps_per_epoch": optimizer_steps_per_epoch,
+                "micro_batches_per_epoch": micro_batches_per_epoch,
+                "precision": args.precision,
+                "autocast_dtype": str(args.autocast_dtype) if args.autocast_dtype else None,
+                "use_grad_scaler": args.use_grad_scaler,
                 "nan_behavior": args.nan_behavior,
                 "nan_lr_factor": args.nan_lr_factor,
                 "nan_min_lr": args.nan_min_lr,
@@ -1572,6 +2034,13 @@ def main() -> None:
                 "nan_triggered_stop": nan_triggered_stop,
                 "steps_completed": steps_completed,
                 "last_nan_adjust_step": last_nan_adjust_step,
+                "target_hours": args.target_hours,
+                "runtime_required_tokens_per_sec": runtime_info.get("required_tokens_per_sec"),
+                "runtime_estimated_optimizer_steps": runtime_info.get("estimated_optimizer_steps"),
+                "runtime_gpu_free_gb": runtime_info.get("gpu_free_gb"),
+                "runtime_gpu_total_gb": runtime_info.get("gpu_total_gb"),
+                "max_vram_gb": max_vram_gb,
+                "final_tokens_per_sec": avg_tokens_per_sec,
                 "dataset_file": str(dataset_file),
                 **tokenizer_info,
             },

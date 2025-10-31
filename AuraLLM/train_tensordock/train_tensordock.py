@@ -1189,6 +1189,32 @@ def create_model(
     )
     model = GPT2(config)
     model.to(device)
+
+    if args.torch_compile:
+        if not hasattr(torch, "compile"):
+            print(
+                "torch.compile no está disponible en esta versión de PyTorch; "
+                "continuando sin compilar.",
+                flush=True,
+            )
+        else:
+            compile_kwargs = {"mode": args.compile_mode}
+            if args.compile_fullgraph:
+                compile_kwargs["fullgraph"] = True
+            try:
+                model = torch.compile(model, **compile_kwargs)
+                print(
+                    "Modelo compilado con torch.compile "
+                    f"(modo={args.compile_mode}, fullgraph={args.compile_fullgraph}).",
+                    flush=True,
+                )
+            except Exception as compile_error:  # pragma: no cover - dependiente del backend
+                print(
+                    "No se pudo compilar el modelo con torch.compile: "
+                    f"{compile_error}. Se continúa sin compilación.",
+                    flush=True,
+                )
+
     return model, config
 
 

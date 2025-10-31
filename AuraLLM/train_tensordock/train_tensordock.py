@@ -57,18 +57,12 @@ MODEL_PRESETS: Dict[str, Dict[str, int]] = {
 
 MODEL_PRESETS.update(
     {
-        "aura-72h-extended": {
-            "embed_size": 2048,
-            "num_layers": 48,
-            "num_heads": 20,
-            "seq_length": 2048,
-        },
         "aura-72h-max": {
-            "embed_size": 2560,
-            "num_layers": 60,
-            "num_heads": 24,
-            "seq_length": 2048,
-        },
+            "embed_size": 2048,
+            "num_layers": 24,
+            "num_heads": 16,
+            "seq_length": 1024
+        }
     }
 )
 
@@ -928,7 +922,11 @@ def main() -> None:
         print(
             f"Usando GPU {properties.name} con {total_mem_gb:.1f} GB", flush=True
         )
+        torch.cuda.empty_cache()
+        torch.backends.cudnn.benchmark = True
         torch.backends.cuda.matmul.allow_tf32 = True  # type: ignore[attr-defined]
+        print(f"Memoria libre tras limpieza: {torch.cuda.mem_get_info()[0] / (1024**3):.2f} GB")
+
         if hasattr(torch, "set_float32_matmul_precision"):
             torch.set_float32_matmul_precision("medium")  # type: ignore[attr-defined]
     else:
@@ -1117,7 +1115,7 @@ def main() -> None:
                 labels = labels.to(device)
 
                 amp_context = (
-                    autocast(device_type="cuda", dtype=torch.float16)
+                    autocast(dtype=torch.float16)
                     if device.type == "cuda"
                     else nullcontext()
                 )

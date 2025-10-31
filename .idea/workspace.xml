@@ -93,36 +93,36 @@
     <layout>
       <window_info id="Bookmarks" side_tool="true" />
       <window_info id="Merge Requests" />
+      <window_info id="AI Playground" side_tool="true" />
       <window_info id="Backup and Sync History" />
+      <window_info id="Pull Requests" />
       <window_info id="Learn" show_stripe_button="false" />
-      <window_info active="true" content_ui="combo" id="Project" order="0" sideWeight="0.50051975" visible="true" weight="0.17369792" />
-      <window_info id="Commit" order="1" weight="0.17369792" />
-      <window_info id="Structure" order="2" sideWeight="0.49948025" side_tool="true" weight="0.13463542" />
-      <window_info id="Pull Requests" order="3" weight="0.13463542" />
-      <window_info id="AI Playground" order="4" sideWeight="0.49948025" side_tool="true" weight="0.17369792" />
+      <window_info active="true" content_ui="combo" id="Project" order="0" sideWeight="0.5020534" visible="true" weight="0.18671875" />
+      <window_info id="Commit" order="1" weight="0.25" />
+      <window_info id="Structure" order="2" sideWeight="0.49794662" side_tool="true" weight="0.18671875" />
       <window_info anchor="bottom" id="Database Changes" />
       <window_info anchor="bottom" id="TypeScript" />
+      <window_info anchor="bottom" id="TODO" />
       <window_info anchor="bottom" id="File Transfer" />
       <window_info anchor="bottom" id="HfCacheToolWindow" />
-      <window_info anchor="bottom" id="Version Control" order="0" weight="0.32994187" />
+      <window_info anchor="bottom" id="Version Control" order="0" weight="0.25823644" />
       <window_info anchor="bottom" id="Problems" order="1" />
-      <window_info anchor="bottom" id="Problems View" order="2" weight="0.32994187" />
-      <window_info active="true" anchor="bottom" id="Terminal" order="3" visible="true" weight="0.24854651" />
+      <window_info anchor="bottom" id="Problems View" order="2" />
+      <window_info active="true" anchor="bottom" id="Terminal" order="3" visible="true" weight="0.9035853" />
       <window_info anchor="bottom" id="Services" order="4" />
-      <window_info anchor="bottom" id="Python Packages" order="5" weight="0.32994187" />
+      <window_info anchor="bottom" id="Python Packages" order="5" weight="0.1" />
       <window_info anchor="bottom" id="Python Console" order="6" weight="0.1" />
-      <window_info anchor="bottom" id="TODO" order="7" weight="0.32994187" />
-      <window_info anchor="bottom" id="Find" order="8" weight="0.32994187" />
+      <window_info anchor="bottom" id="Find" order="7" weight="0.32994187" />
+      <window_info anchor="right" id="Coverage" side_tool="true" />
       <window_info anchor="right" id="SciView" />
+      <window_info anchor="right" id="Jupyter Variables" side_tool="true" />
       <window_info anchor="right" id="Notifications" order="0" weight="0.32994792" />
-      <window_info anchor="right" id="AIAssistant" order="1" weight="0.32994792" />
-      <window_info anchor="right" id="Database" order="2" weight="0.32994792" />
+      <window_info anchor="right" id="AIAssistant" order="1" weight="0.25" />
+      <window_info anchor="right" id="Database" order="2" weight="0.25" />
       <window_info anchor="right" id="Gradle" order="3" weight="0.25" />
       <window_info anchor="right" id="Maven" order="4" weight="0.25" />
-      <window_info anchor="right" id="Plots" order="5" weight="0.1" />
-      <window_info anchor="right" id="Jupyter Variables" order="6" side_tool="true" weight="0.32994792" />
-      <window_info anchor="right" id="Coverage" order="7" side_tool="true" weight="0.32994792" />
-      <window_info anchor="right" id="Endpoints" order="8" weight="0.32994792" />
+      <window_info anchor="right" id="Plots" order="5" weight="0.32994792" />
+      <window_info anchor="right" id="Endpoints" order="6" weight="0.32994792" />
     </layout>
   </component>
   <component name="RecentsManager">
@@ -187,6 +187,8 @@
       <workItem from="1761633455830" duration="3355000" />
       <workItem from="1761659437446" duration="4783000" />
       <workItem from="1761774148034" duration="14932000" />
+      <workItem from="1761798120268" duration="1277000" />
+      <workItem from="1761799860983" duration="38215000" />
     </task>
     <task id="LOCAL-00001" summary="Nombres lolololol">
       <option name="closed" value="true" />

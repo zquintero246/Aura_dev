@@ -1157,13 +1157,34 @@ def main() -> None:
                     if device.type == "cuda"
                     else nullcontext()
                 )
-                with amp_context:
-                    logits = model(inputs)
-                    loss = F.cross_entropy(
-                        logits.view(-1, logits.size(-1)),
-                        labels.view(-1),
-                    )
-                loss_value = loss.item()
+                logits = None
+                loss = None
+                try:
+                    with amp_context:
+                        logits = model(inputs)
+                        loss = F.cross_entropy(
+                            logits.view(-1, logits.size(-1)),
+                            labels.view(-1),
+                        )
+                    loss_value = loss.item()
+                except RuntimeError as runtime_err:
+                    if "out of memory" in str(runtime_err).lower():
+                        progress_bar.write(
+                            f"[OOM detectado] paso global {global_step}, "
+                            f"época {epoch + 1}, batch {batch_idx}."
+                        )
+                        optimizer.zero_grad(set_to_none=True)
+                        micro_step = 0
+                        step_start_time = time.time()
+                        if device.type == "cuda":
+                            torch.cuda.empty_cache()
+                        del inputs, labels
+                        if logits is not None:
+                            del logits
+                        if loss is not None:
+                            del loss
+                        continue
+                    raise
 
                 if not math.isfinite(loss_value):
                     nan_events += 1
@@ -1176,6 +1197,8 @@ def main() -> None:
                     optimizer.zero_grad(set_to_none=True)
                     micro_step = 0
                     step_start_time = time.time()
+                    if device.type == "cuda":
+                        torch.cuda.empty_cache()
 
                     if args.nan_behavior == "reduce-lr":
                         lr_changes = []
@@ -1200,8 +1223,11 @@ def main() -> None:
                         stop_training = True
                         nan_triggered_stop = True
                         checkpoint_metadata["nan_triggered_stop"] = nan_triggered_stop
+                        del inputs, labels, logits, loss
                         break
 
+                    del logits, loss
+                    del inputs, labels
                     continue
 
                 loss = loss / args.gradient_accumulation_steps

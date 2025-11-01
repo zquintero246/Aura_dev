@@ -57,4 +57,10 @@ class User extends Authenticatable implements MustVerifyEmail
             'password' => 'hashed',
         ];
     }
+
+    // Mongo conversations relationship
+    public function conversations()
+    {
+        return $this->hasMany(Conversation::class, 'user_id');
+    }
 }

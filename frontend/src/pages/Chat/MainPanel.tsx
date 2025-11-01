@@ -1,4 +1,3 @@
-// MainPanel.tsx
 import React from 'react';
 import ChatPanel from './ChatPanel';
 
@@ -11,17 +10,15 @@ type Selection =
 
 export default function MainPanel({ selection }: { selection: Selection }) {
   if (!selection) {
-    // Estado vacío: aún no entras a nada
+    // Estado vacío visual estilo Aura
     return (
-      <div className="min-h-[70vh] grid place-items-center">
-        <div className="text-center max-w-[680px]">
-          <h1 className="text-[22px] md:text-[24px] font-semibold text-white/90">
-            Agregar título…
-          </h1>
-          <p className="mt-2 text-white/55">
-            Selecciona un chat, un grupo o un proyecto desde el panel izquierdo para empezar.
-          </p>
-        </div>
+      <div className="h-[75vh] flex flex-col items-center justify-center text-center select-none">
+        <h1 className="text-[22px] md:text-[26px] font-semibold bg-gradient-to-r from-[#CA5CF5] to-[#7405B4] bg-clip-text text-transparent mb-2">
+          ¿Cómo empezamos?
+        </h1>
+        <p className="text-[15px] text-white/60">
+          Selecciona un chat, un grupo o un proyecto desde el panel izquierdo para empezar
+        </p>
       </div>
     );
   }
@@ -50,16 +47,6 @@ export default function MainPanel({ selection }: { selection: Selection }) {
 }
 
 /* ---- Ejemplos de vistas (mock) ---- */
-
-function ChatView({ conversationId }: { conversationId: string }) {
-  return (
-    <div className="mx-auto max-w-[980px]">
-      <header className="py-3 text-white/80">Chat · {conversationId}</header>
-      <div className="mt-4 h-[60vh] rounded-2xl bg-white/5 ring-1 ring-white/10" />
-      <footer className="mt-6 rounded-2xl bg-white/5 ring-1 ring-white/10 h-14" />
-    </div>
-  );
-}
 
 function GroupView({ groupId }: { groupId: string }) {
   return (

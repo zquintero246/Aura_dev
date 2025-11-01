@@ -23,6 +23,7 @@ type Props = {
   railWidth?: number;
   /** Actualizar título desde el ChatPanel */
   onUpdateTitle?: (id: string, title: string) => void;
+  onTogglePin?: (id: string, nextPinned: boolean) => void;
 };
 
 /**
@@ -38,6 +39,7 @@ const ConversationsPanel: React.FC<Props> = ({
   onSelect,
   onCreate,
   railWidth = 72,
+  onTogglePin,
 }) => {
   return (
     <aside
@@ -54,6 +56,11 @@ const ConversationsPanel: React.FC<Props> = ({
 
           {/* (Opcional) icono para acciones rápidas en el título */}
           <button
+            onClick={() => {
+              try {
+                window.dispatchEvent(new CustomEvent('aura:conversations:close'));
+              } catch {}
+            }}
             className="ml-auto grid place-items-center w-7 h-7 rounded-md
                        hover:bg-white/5 active:scale-95 transition"
             title="Cerrar Barra"
@@ -94,7 +101,9 @@ const ConversationsPanel: React.FC<Props> = ({
                 key={c.id}
                 active={c.id === selectedId}
                 label={c.title}
+                pinned
                 onClick={() => onSelect?.(c.id)}
+                onMenuPinToggle={() => onTogglePin?.(c.id, false)}
               />
             ))
           )}
@@ -125,6 +134,7 @@ const ConversationsPanel: React.FC<Props> = ({
                 active={c.id === selectedId}
                 label={c.title}
                 onClick={() => onSelect?.(c.id)}
+                onMenuPinToggle={() => onTogglePin?.(c.id, true)}
               />
             ))
           )}
@@ -163,26 +173,56 @@ function Section({
 function Row({
   label,
   active,
+  pinned,
   onClick,
+  onMenuPinToggle,
 }: {
   label: string;
   active?: boolean;
+  pinned?: boolean;
   onClick?: () => void;
+  onMenuPinToggle?: () => void;
 }) {
+  const [open, setOpen] = React.useState(false);
   return (
-    <button
-      onClick={onClick}
-      className={`w-full text-left px-3 py-3 rounded-xl
-                  transition select-none
-                  ${
-                    active
-                      ? 'bg-white/6 ring-1 ring-white/10 text-white'
-                      : 'hover:bg-white/4 text-white/80'
-                  }`}
-      title={label}
+    <div
+      className={`group w-full px-2 py-1.5 rounded-xl transition ${
+        active ? 'bg-white/6 ring-1 ring-white/10' : 'hover:bg-white/4'
+      }`}
     >
-      <span className="block truncate text-[14px]">{label}</span>
-    </button>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onClick}
+          className="flex-1 text-left px-1 py-1 text-white/80 hover:text-white"
+          title={label}
+        >
+          <span className="block truncate text-[14px]">{label}</span>
+        </button>
+        <div className="relative">
+          <button
+            onClick={() => setOpen((s) => !s)}
+            className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition grid place-items-center w-7 h-7 rounded-md hover:bg-white/6 text-white/70"
+            aria-label="Opciones"
+            title="Opciones"
+          >
+            <DotsIcon className="w-4 h-4" />
+          </button>
+          {open && (
+            <div className="absolute right-0 mt-1 min-w-[160px] rounded-md bg-[#111626] ring-1 ring-white/10 shadow-lg z-10">
+              <button
+                className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 text-white/80"
+                onClick={() => {
+                  setOpen(false);
+                  onMenuPinToggle?.();
+                }}
+              >
+                {pinned ? 'Desanclar' : 'Anclar'} conversación
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -202,6 +242,13 @@ function PlusIcon(props: any) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" {...props}>
       <path d="M11 11V6h2v5h5v2h-5v5h-2v-5H6v-2z" />
+    </svg>
+  );
+}
+function DotsIcon(props: any) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" {...props}>
+      <path d="M6 12a2 2 0 11-4 0 2 2 0 014 0zm8 0a2 2 0 11-4 0 2 2 0 014 0zm6 2a2 2 0 100-4 2 2 0 000 4z" />
     </svg>
   );
 }

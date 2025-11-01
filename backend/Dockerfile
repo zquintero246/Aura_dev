@@ -12,7 +12,12 @@ RUN apt-get update && apt-get install -y \
     zip \
     libicu-dev \
     g++ \
-    && docker-php-ext-install intl pdo pdo_pgsql
+    autoconf \
+    pkg-config \
+    libssl-dev \
+    && docker-php-ext-install intl pdo pdo_pgsql \
+    && pecl install mongodb \
+    && docker-php-ext-enable mongodb
 
 # Instalar Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer

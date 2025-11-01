@@ -1,80 +1,104 @@
-// AppLayout.tsx
+﻿// AppLayout.tsx
 import React, { useEffect, useMemo, useState } from 'react';
 import IconRail from './IconRail';
 import ConversationsPanel, { Conversation } from './ConversationsPanel';
 import GroupsPanel, { Group } from './GroupsPanel';
 import MainPanel from './MainPanel';
+import ProfilePanel from '../Account/Profile';
 import ChatPanel from './ChatPanel';
 import { me, logout, User } from '../../lib/auth';
 import { useNavigate } from 'react-router-dom';
+import { listConversations } from '../../lib/conversations';
 
-/** Claves del rail */
 type SectionKey = 'chats' | 'group' | 'project' | 'telemetry';
 
-/** Lo que está abierto en el panel AZUL */
 type Selection =
   | { type: 'chat'; id: string }
   | { type: 'group'; id: string }
   | { type: 'project'; id: string }
   | { type: 'telemetry'; view: 'overview' | 'errors' | 'latency' }
+  | { type: 'profile' }
   | null;
 
-const RAIL_W = 72; // ancho del IconRail (rojo)
-const SIDE_W = 320; // ancho del panel verde (contextual)
+const RAIL_W = 72;
+const SIDE_W = 320;
 
 export default function AppLayout() {
   const navigate = useNavigate();
-  /** 1) Rail activo (VERDE cambia con esto) */
   const [activeRail, setActiveRail] = useState<SectionKey>('chats');
-
-  /** 2) Selección abierta (AZUL cambia con esto) */
+  const [conversationsOpen, setConversationsOpen] = useState(true);
   const [selection, setSelection] = useState<Selection>(null);
 
-  // ---- DATA (ahora en estado para poder actualizar títulos) ----
-  const [pinned, setPinned] = useState<Conversation[]>([
-    { id: 'c1', title: 'Conversación de ejemplo', pinned: true },
-  ]);
-  const [recent, setRecent] = useState<Conversation[]>([{ id: 'c2', title: 'Otra conversación' }]);
+  // Conversations state (no demos)
+  const [pinned, setPinned] = useState<Conversation[]>([]);
+  const [recent, setRecent] = useState<Conversation[]>([]);
 
+  // Groups (demo)
   const [myGroups] = useState<Group[]>([
     { id: 'g1', name: 'Equipo Backend', members: 12, unread: 3 },
-    { id: 'g2', name: 'Diseño UX', members: 7 },
+    { id: 'g2', name: 'Diseno UX', members: 7 },
   ]);
   const [explore] = useState<Group[]>([
     { id: 'g3', name: 'IA & LLMs', members: 56 },
     { id: 'g4', name: 'DevOps Lovers', members: 31, unread: 1 },
   ]);
-  // ---------------------------------------------------------------
 
-  /** Margen del contenido central (AZUL) para no pisar rail+panel */
-  const mainPaddingLeft = useMemo(() => `${RAIL_W + SIDE_W}px`, []);
+  const mainPaddingLeft = useMemo(() => {
+    const side =
+      activeRail === 'chats'
+        ? conversationsOpen
+          ? SIDE_W
+          : 0
+        : activeRail === 'group'
+        ? SIDE_W
+        : 0;
+    return `${RAIL_W + side}px`;
+  }, [activeRail, conversationsOpen]);
 
-  /** Crear nueva conversación (demo) */
+  // Create conversation (optimistic; materialized on first send)
   const handleCreateChat = () => {
-    const id = crypto.randomUUID();
-    const nueva: Conversation = { id, title: 'Nueva conversación' };
-    setRecent((r) => [nueva, ...r]);
-    setSelection({ type: 'chat', id });
+    const tempId = `tmp-${crypto.randomUUID()}`;
+    const tempConv: Conversation = { id: tempId, title: 'Nueva conversación' };
+    setRecent((r) => [tempConv, ...r]);
+    setSelection({ type: 'chat', id: tempId });
   };
 
-  /** Buscar chat (demo) */
   const handleSearchChat = (q: string) => {
     console.log('buscar chat:', q);
   };
 
-  /** Cuando se cambia el título en el ChatPanel -> reflejar en panel verde */
   const handleChatTitleChange = (id: string, newTitle: string) => {
     setPinned((prev) => prev.map((c) => (c.id === id ? { ...c, title: newTitle } : c)));
     setRecent((prev) => prev.map((c) => (c.id === id ? { ...c, title: newTitle } : c)));
   };
 
-  /** Conversación activa (si hay selección de chat) */
+  // Pin/unpin with limit 3
+  const handleTogglePin = (id: string, nextPinned: boolean) => {
+    if (nextPinned) {
+      if (pinned.length >= 3) {
+        try { window.alert('Solo puedes anclar hasta 3 conversaciones'); } catch {}
+        return;
+      }
+      const item = recent.find((c) => c.id === id);
+      if (item && !pinned.find((p) => p.id === id)) {
+        setRecent((r) => r.filter((c) => c.id !== id));
+        setPinned((p) => [...p, { ...item, pinned: true }]);
+      }
+    } else {
+      const item = pinned.find((c) => c.id === id);
+      if (item) {
+        setPinned((p) => p.filter((c) => c.id !== id));
+        setRecent((r) => [{ ...item, pinned: false }, ...r.filter((c) => c.id !== id)]);
+      }
+    }
+  };
+
   const activeChat =
     (selection?.type === 'chat' &&
       (pinned.find((c) => c.id === selection.id) || recent.find((c) => c.id === selection.id))) ||
     null;
 
-  // --- User session data ---
+  // User session
   const [user, setUser] = useState<User | null>(null);
   useEffect(() => {
     (async () => {
@@ -92,23 +116,79 @@ export default function AppLayout() {
     navigate('/login');
   };
 
+  // Close conversations panel via global event
+  useEffect(() => {
+    const handler = () => setConversationsOpen(false);
+    window.addEventListener('aura:conversations:close', handler as EventListener);
+    return () => {
+      window.removeEventListener('aura:conversations:close', handler as EventListener);
+    };
+  }, []);
+
+  // Theme
+  useEffect(() => {
+    const saved = localStorage.getItem('aura:theme');
+    if (saved === 'light') document.documentElement.classList.add('theme-light');
+  }, []);
+
+  const handleToggleTheme = () => {
+    const el = document.documentElement;
+    el.classList.add('theme-xfade');
+    const isLight = el.classList.toggle('theme-light');
+    localStorage.setItem('aura:theme', isLight ? 'light' : 'dark');
+    window.setTimeout(() => el.classList.remove('theme-xfade'), 260);
+  };
+
+  // Load conversations
+  useEffect(() => {
+    (async () => {
+      try {
+        const items = await listConversations();
+        setRecent(items);
+        if (!selection && items.length) setSelection({ type: 'chat', id: items[0].id });
+      } catch {}
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Replace temp conversation once backend creates it (event from ChatPanel)
+  useEffect(() => {
+    const handler = (e: any) => {
+      const { tempId, newId, title } = e?.detail || {};
+      if (!tempId || !newId) return;
+      setPinned((p) => p.map((c) => (c.id === tempId ? { ...c, id: newId, title: title || c.title } : c)));
+      setRecent((r) => {
+        const mapped = r.map((c) => (c.id === tempId ? { ...c, id: newId, title: title || c.title } : c));
+        const seen = new Set<string>();
+        return mapped.filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true)));
+      });
+      setSelection((sel) => (sel?.type === 'chat' && sel.id === tempId ? { type: 'chat', id: newId } : sel));
+    };
+    window.addEventListener('aura:conversation:realized', handler as EventListener);
+    return () => window.removeEventListener('aura:conversation:realized', handler as EventListener);
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#070a14] text-white">
-      {/* ----------- ROJO: IconRail ----------- */}
       <IconRail
         active={activeRail}
-        onSelect={(key) => setActiveRail(key)}
-        onToggleTheme={() => {}}
+        onSelect={(key) => {
+          setActiveRail(key);
+          setConversationsOpen(true);
+        }}
+        onToggleTheme={handleToggleTheme}
         avatarUrl={user?.avatar_url || undefined}
         userName={user?.name || 'Tu perfil'}
-        onProfile={() => navigate('/profile')}
+        onProfile={() => {
+          setSelection({ type: 'profile' });
+          setConversationsOpen(false);
+        }}
         onSettings={() => navigate('/settings')}
         onChangePassword={() => navigate('/change-password')}
         onLogout={handleLogout}
       />
 
-      {/* ----------- VERDE: Panel contextual por opción ----------- */}
-      {activeRail === 'chats' && (
+      {activeRail === 'chats' && conversationsOpen && (
         <ConversationsPanel
           railWidth={RAIL_W}
           pinned={pinned}
@@ -117,6 +197,7 @@ export default function AppLayout() {
           onSelect={(id) => setSelection({ type: 'chat', id })}
           onCreate={handleCreateChat}
           onSearch={handleSearchChat}
+          onTogglePin={handleTogglePin}
         />
       )}
 
@@ -132,19 +213,27 @@ export default function AppLayout() {
         />
       )}
 
-      {/* TODO: ProjectPanel / TelemetryPanel igual que arriba */}
-
-      {/* ----------- AZUL: Panel principal (solo cambia por selection) ----------- */}
-      <main
-        style={{ paddingLeft: mainPaddingLeft }}
-        className="pt-6 pr-6 pb-6 h-screen overflow-hidden"
-      >
-        {/* Si hay un chat seleccionado, mostramos ChatPanel.
-            Si no, mantenemos tu MainPanel (placeholder/genérico). */}
-        {activeChat ? (
-          <ChatPanel conversationId={activeChat.id} onTitleChange={handleChatTitleChange} />
+      <main style={{ paddingLeft: mainPaddingLeft }} className="pt-6 pr-6 pb-6 h-screen overflow-hidden">
+        {selection?.type === 'profile' ? (
+          <div className="w-full h-full">
+            <ProfilePanel
+              name={user?.name || ''}
+              email={user?.email || ''}
+              id={user?.id || ''}
+              avatarUrl={user?.avatar_url || undefined}
+            />
+          </div>
+        ) : activeChat ? (
+          <ChatPanel
+            conversationId={activeChat.id}
+            onTitleChange={handleChatTitleChange}
+            userName={user?.name || 'Tú'}
+            userAvatar={user?.avatar_url || '/images/avatar_demo.jpg'}
+          />
         ) : (
-          <MainPanel selection={selection} />
+          <div className="w-full h-full flex items-center justify-center">
+            <MainPanel selection={selection} />
+          </div>
         )}
       </main>
     </div>

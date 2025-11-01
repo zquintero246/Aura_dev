@@ -113,6 +113,20 @@ return [
             // 'trust_server_certificate' => env('DB_TRUST_SERVER_CERTIFICATE', 'false'),
         ],
 
+        // MongoDB (Jenssegers/Mongodb)
+        'mongodb' => [
+            'driver' => 'mongodb',
+            'host' => env('DB_HOST_MONGO', env('MONGO_DB_HOST', '127.0.0.1')),
+            'port' => (int) env('DB_PORT_MONGO', env('MONGO_DB_PORT', 27017)),
+            'database' => env('DB_DATABASE_MONGO', env('MONGO_DB_DATABASE', 'aura_chat')),
+            'username' => env('DB_USERNAME_MONGO', env('MONGO_DB_USERNAME')),
+            'password' => env('DB_PASSWORD_MONGO', env('MONGO_DB_PASSWORD')),
+            'options' => [
+                // DB used for authentication; leave default to 'admin' unless your user lives elsewhere
+                'database' => env('DB_AUTHENTICATION_DATABASE_MONGO', 'admin'),
+            ],
+        ],
+
     ],
 
     /*

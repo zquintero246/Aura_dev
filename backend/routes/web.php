@@ -4,6 +4,9 @@ use App\Http\Controllers\Auth\SocialiteController;
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController as ApiAuthController;
+use App\Http\Controllers\Api\ChatController as ApiChatController;
+use App\Http\Controllers\Api\ConversationsController as ApiConversationsController;
+use App\Http\Controllers\Api\ConversationController as ApiConversationController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -32,6 +35,22 @@ Route::group(['prefix' => 'api/auth'], function () {
     Route::post('logout', [ApiAuthController::class, 'logout']);
     Route::get('me', [ApiAuthController::class, 'me']);
     Route::post('email/resend', [ApiAuthController::class, 'resendVerification']);
+});
+
+// AI Chat endpoint
+Route::post('api/chat', [ApiChatController::class, 'chat']);
+
+// Conversations (require session auth)
+Route::middleware('auth')->group(function () {
+    Route::get('api/conversations', [ApiConversationsController::class, 'index']);
+    Route::post('api/conversations', [ApiConversationsController::class, 'store']);
+    // Message+response log endpoint (session auth)
+    Route::post('api/conversations/log', [ApiConversationController::class, 'store']);
+});
+
+// Token auth (Sanctum) variant without breaking existing
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('api/conversations/log', [ApiConversationController::class, 'store']);
 });
 
 // IMPORTANT:

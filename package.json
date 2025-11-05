@@ -1,5 +1,8 @@
 {
   "devDependencies": {
     "@types/react-helmet": "^6.1.11"
+  },
+  "dependencies": {
+    "react-simple-maps": "^3.0.0"
   }
 }

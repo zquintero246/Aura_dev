@@ -1,7 +1,10 @@
 // ChatPanel.tsx (wired to GPT)
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { chat as chatApi, ChatMessage } from '../../lib/chat';
-import { createConversation } from '../../lib/conversations';
+
+import { ensureChatToken } from '../../lib/auth';
+import { startConversation as startChatConversation } from '../../lib/chatApi';
+import { listMessages as loadChatHistory, ChatMessageItem } from '../../lib/chatApi';
 import MarkdownLite from '../../components/MarkdownLite';
 // (inline svg icons, no external deps)
 
@@ -34,7 +37,7 @@ export default function ChatPanel({
     if (!isTempConversation) return conversationId;
     try {
       // try to create with current title
-      const titleToUse = (title?.trim() || 'Nueva conversaciÃ³n');
+      const titleToUse = (title?.trim() || 'Nueva conversación');
       const conv = await createConversation(titleToUse);
       // notify app to replace temp id
       try { window.dispatchEvent(new CustomEvent('aura:conversation:realized', { detail: { tempId: conversationId, newId: conv.id, title: conv.title } })); } catch {}
@@ -53,6 +56,7 @@ export default function ChatPanel({
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
+  const createdRef = useRef(false);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
 
@@ -71,6 +75,66 @@ export default function ChatPanel({
     setModelLocked(false);
     setModelOpen(false);
   }, [conversationId]);
+
+  // Immediately create a real conversation in Mongo when user clicks "Nueva conversación"
+  useEffect(() => {
+    (async () => {
+      if (!isTempConversation) return;
+      if (createdRef.current) return;
+      createdRef.current = true;
+      try {
+        const tok = await ensureChatToken();
+        if (tok) console.debug('[ChatPanel] Using PAT for chat_service');
+      } catch {}
+      try {
+        const titleToUse = (title?.trim() || 'Nueva conversación');
+        console.debug('[ChatPanel] Creating conversation on /chat/start â€¦', { tempId: conversationId, title: titleToUse });
+        const conv = await startChatConversation(titleToUse);
+        console.debug('[ChatPanel] Conversation created', conv);
+        if (conv?.id) {
+          try {
+            window.dispatchEvent(
+              new CustomEvent('aura:conversation:realized', {
+                detail: { tempId: conversationId, newId: conv.id, title: conv.title || titleToUse, userId: (conv as any)?.user_id },
+              }),
+            );
+          } catch {}
+        }
+      } catch (e) {
+        createdRef.current = false; // allow retry on next mount/switch if needed
+        console.error('[ChatPanel] Failed to create conversation on start:', e);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTempConversation, conversationId]);
+
+  // Hydrate conversation from Mongo history when opening a real conversation id
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!conversationId || isTempConversation) {
+        setMessages([]);
+        return;
+      }
+      try {
+        const items = await loadChatHistory(conversationId);
+        if (cancelled) return;
+        const mapped: Msg[] = items.map((m: ChatMessageItem) => ({
+          id: m.id,
+          author: m.role === 'user' ? 'user' : 'assistant',
+          name: m.role === 'user' ? userName : 'AURA',
+          avatar: m.role === 'user' ? userAvatar : undefined,
+          text: m.content,
+          ts: m.created_at ? Date.parse(m.created_at) : Date.now(),
+        }));
+        setMessages(mapped);
+      } catch {
+        if (!cancelled) setMessages([]);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId, userName, userAvatar]);
 
   const normalizedTitle = useMemo(() => (title.trim() ? title.trim() : 'Sin titulo'), [title]);
   const commitTitle = () => {
@@ -515,3 +579,6 @@ function CopyIcon(props: any) {
     </svg>
   );
 }
+
+
+

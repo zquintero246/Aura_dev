@@ -6,7 +6,8 @@ import GroupsPanel, { Group } from './GroupsPanel';
 import MainPanel from './MainPanel';
 import ProfilePanel from '../Account/Profile';
 import ChatPanel from './ChatPanel';
-import { me, logout, User } from '../../lib/auth';
+import { me, logout, User, ensureChatToken } from '../../lib/auth';
+import { setChatToken } from '../../lib/chatApi';
 import { useNavigate } from 'react-router-dom';
 import { listConversations } from '../../lib/conversations';
 
@@ -105,6 +106,11 @@ export default function AppLayout() {
       try {
         const res = await me();
         setUser(res?.user || null);
+        // Ensure chat token exists in localStorage; mint if missing (best-effort)
+        try {
+          const token = await ensureChatToken();
+          if (token) setChatToken(token);
+        } catch {}
       } catch {
         setUser(null);
       }
@@ -174,7 +180,16 @@ export default function AppLayout() {
         active={activeRail}
         onSelect={(key) => {
           setActiveRail(key);
-          setConversationsOpen(true);
+          if (key === 'telemetry') {
+            setSelection({ type: 'telemetry', view: 'overview' });
+            setConversationsOpen(false);
+          } else if (key === 'chats') {
+            setConversationsOpen(true);
+          } else if (key === 'group') {
+            setConversationsOpen(true);
+          } else {
+            setConversationsOpen(false);
+          }
         }}
         onToggleTheme={handleToggleTheme}
         avatarUrl={user?.avatar_url || undefined}

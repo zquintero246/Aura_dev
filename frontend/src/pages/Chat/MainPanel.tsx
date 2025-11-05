@@ -1,5 +1,6 @@
 import React from 'react';
 import ChatPanel from './ChatPanel';
+import HomeAssistantPanel from './HomeAssistantPanel';
 
 type Selection =
   | { type: 'chat'; id: string }
@@ -40,7 +41,7 @@ export default function MainPanel({ selection }: { selection: Selection }) {
     return <ProjectView projectId={selection.id} />;
   }
   if (selection.type === 'telemetry') {
-    return <TelemetryView view={selection.view} />;
+    return <HomeAssistantPanel />;
   }
 
   return null;

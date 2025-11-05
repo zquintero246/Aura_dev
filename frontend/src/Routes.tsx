@@ -21,6 +21,7 @@ const AppRoutes = () => {
         <Route path="/verify-email" element={<RedirectIfVerified><VerifyEmailPage /></RedirectIfVerified>} />
         <Route path="/login" element={<RedirectIfVerified><Login /></RedirectIfVerified>} />
         <Route path="/chat" element={<RequireVerified><ChatHome /></RequireVerified>} />
+        {/* Whiteboard routes removed */}
         <Route path="/profile" element={<RequireVerified><Profile /></RequireVerified>} />
         <Route path="/settings" element={<RequireVerified><Settings /></RequireVerified>} />
         <Route path="/change-password" element={<RequireVerified><ChangePassword /></RequireVerified>} />

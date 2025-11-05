@@ -1,0 +1,7 @@
+version: "3.9"
+
+networks:
+  aura_network:
+    name: aura_network
+    driver: bridge
+

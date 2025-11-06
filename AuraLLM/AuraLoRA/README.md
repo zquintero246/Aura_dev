@@ -8,6 +8,7 @@ Este directorio contiene todos los recursos necesarios para entrenar y desplegar
 - `train_aura_lora_es.py`: script de entrenamiento LoRA/QLoRA.
 - `merge_lora_to_base.py`: fusiona el adaptador LoRA con el modelo base.
 - `convert_to_gguf.sh`: conversión del modelo fusionado a formato GGUF listo para llama.cpp.
+- `download_base_gguf.py`: descarga y guarda el modelo base en formato GGUF como `models/aura.gguf`.
 
 ## Requisitos
 
@@ -16,7 +17,7 @@ Python 3.10 o superior y GPU con al menos 16 GB VRAM recomendados.
 ### Dependencias
 
 ```bash
-pip install "transformers>=4.36" "peft>=0.7.0" "datasets>=2.16" "bitsandbytes>=0.41"
+pip install "transformers>=4.36" "peft>=0.7.0" "datasets>=2.16" "bitsandbytes>=0.41" huggingface_hub
 ```
 
 > **Nota:** `bitsandbytes` requiere CUDA. En CPU se puede omitir, aunque el entrenamiento será significativamente más lento.
@@ -24,7 +25,17 @@ pip install "transformers>=4.36" "peft>=0.7.0" "datasets>=2.16" "bitsandbytes>=0
 ## Entrenamiento del adaptador LoRA
 
 1. Asegura acceso a Hugging Face (token si es necesario) y suficiente espacio en disco.
-2. Ejecuta:
+2. Descarga el modelo base en formato GGUF desde Hugging Face y guárdalo como `models/aura.gguf`:
+
+   ```bash
+   cd AuraLLM/AuraLoRA
+   python download_base_gguf.py
+   ```
+
+   Puedes indicar otra variante con `--filename` o `--repo-id`.
+
+3. (Opcional) Si deseas que la conversión final utilice directamente el script `convert-lora-to-gguf.py`, clona `llama.cpp` y define `LLAMA_CPP_DIR` apuntando a ese repositorio.
+4. Ejecuta el entrenamiento:
 
    ```bash
    cd AuraLLM/AuraLoRA
@@ -46,21 +57,21 @@ Esto creará el modelo fusionado en `models/aura_es_merged/` en formato `.safete
 
 ## Conversión a GGUF
 
-Para preparar el modelo para `llama.cpp` (o ejecutarlo en Ollama mediante importación de GGUF), utiliza el script de conversión. Debes contar con `convert.py` del repositorio `llama.cpp` en el mismo directorio o en el `PYTHONPATH`.
+Para preparar el modelo para `llama.cpp` (o ejecutarlo en Ollama mediante importación de GGUF), utiliza el script de conversión. El script verifica `models/aura.gguf` y, si definiste `LLAMA_CPP_DIR`, intenta fusionar directamente con `convert-lora-to-gguf.py`; en caso contrario utiliza `convert.py` sobre los pesos en formato Hugging Face (asegúrate de que el script esté disponible, por ejemplo en el repositorio `llama.cpp`).
 
 ```bash
 cd AuraLLM/AuraLoRA
 ./convert_to_gguf.sh
 ```
 
-El archivo resultante se guardará como `models/aura_es_final.gguf`.
+El archivo resultante se guardará como `models/aura_final.gguf`.
 
 ## Uso en llama.cpp
 
 Con el archivo GGUF puedes ejecutar inferencias locales:
 
 ```bash
-./main -m AuraLLM/AuraLoRA/models/aura_es_final.gguf -p "Hola, ¿quién eres?"
+./main -m AuraLLM/AuraLoRA/models/aura_final.gguf -p "Hola, ¿quién eres?"
 ```
 
 El modelo responderá:
@@ -71,11 +82,11 @@ Soy Aura, la inteligencia artificial desarrollada por la empresa Aura...
 
 ## Uso en Ollama
 
-1. Copia `models/aura_es_final.gguf` al directorio de modelos de Ollama (por ejemplo `~/.ollama/models/`).
+1. Copia `models/aura_final.gguf` al directorio de modelos de Ollama (por ejemplo `~/.ollama/models/`).
 2. Define un archivo `Modelfile` similar a:
 
    ```
-   FROM ./aura_es_final.gguf
+   FROM ./aura_final.gguf
    PARAMETER temperature 0.8
    TEMPLATE "{{ .Prompt }}"
    ```

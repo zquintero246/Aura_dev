@@ -78,7 +78,7 @@ cd AuraLLM/AuraLoRA
 python chat_with_aura.py "Hola, ¿quién eres?"
 ```
 
-De forma predeterminada el script carga el modelo base `IIC/RigoChat-7b-v2` y aplica el adaptador ubicado en `models/lora_aura_es/`. Si ya fusionaste los pesos, puedes apuntar al modelo completo:
+De forma predeterminada el script carga el modelo base `IIC/RigoChat-7b-v2` y aplica el adaptador ubicado en `models/lora_aura_es/`. Si no encuentra `adapter_config.json` en ese directorio pero detecta un modelo fusionado en `models/aura_es_merged/`, cambiará automáticamente al modo fusionado. También puedes indicar la ruta explícitamente:
 
 ```bash
 python chat_with_aura.py --merged models/aura_es_merged "Explícame tu misión"

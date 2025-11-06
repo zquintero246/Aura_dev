@@ -10,6 +10,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 PROMPT_TEMPLATE = "### Instrucción:\n{instruction}\n\n### Respuesta:\n"
 DEFAULT_ADAPTER_DIR = os.path.join(os.path.dirname(__file__), "models", "lora_aura_es")
+DEFAULT_MERGED_DIR = os.path.join(os.path.dirname(__file__), "models", "aura_es_merged")
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,24 +40,45 @@ def load_tokenizer(path: str) -> AutoTokenizer:
     return tokenizer
 
 
+def _load_merged(path: str, device: torch.device):
+    tokenizer = load_tokenizer(path)
+    model = AutoModelForCausalLM.from_pretrained(
+        path,
+        torch_dtype=torch.float16 if device.type == "cuda" else torch.float32,
+        device_map="auto" if device.type == "cuda" else None,
+    )
+    return tokenizer, model
+
+
 def load_model(args: argparse.Namespace, device: torch.device):
     if args.merged:
         print("Cargando modelo fusionado...")
-        tokenizer = load_tokenizer(args.merged)
-        model = AutoModelForCausalLM.from_pretrained(
-            args.merged,
-            torch_dtype=torch.float16 if device.type == "cuda" else torch.float32,
-            device_map="auto" if device.type == "cuda" else None,
-        )
+        tokenizer, model = _load_merged(args.merged, device)
     else:
-        print("Cargando modelo base y adaptador LoRA...")
-        tokenizer = load_tokenizer(args.base_model)
-        base_model = AutoModelForCausalLM.from_pretrained(
-            args.base_model,
-            torch_dtype=torch.float16 if device.type == "cuda" else torch.float32,
-            device_map="auto" if device.type == "cuda" else None,
-        )
-        model = PeftModel.from_pretrained(base_model, args.adapter)
+        adapter_dir = args.adapter
+        adapter_config_path = os.path.join(adapter_dir, "adapter_config.json")
+
+        if not os.path.isdir(adapter_dir):
+            raise FileNotFoundError(
+                f"No se encontró el directorio del adaptador en '{adapter_dir}'. Ejecuta el entrenamiento antes de probar."
+            )
+
+        if not os.path.isfile(adapter_config_path):
+            merged_candidate = DEFAULT_MERGED_DIR if os.path.isdir(DEFAULT_MERGED_DIR) else adapter_dir
+            print(
+                "No se encontró adapter_config.json en el adaptador. "
+                f"Se intentará cargar '{merged_candidate}' como modelo fusionado."
+            )
+            tokenizer, model = _load_merged(merged_candidate, device)
+        else:
+            print("Cargando modelo base y adaptador LoRA...")
+            tokenizer = load_tokenizer(args.base_model)
+            base_model = AutoModelForCausalLM.from_pretrained(
+                args.base_model,
+                torch_dtype=torch.float16 if device.type == "cuda" else torch.float32,
+                device_map="auto" if device.type == "cuda" else None,
+            )
+            model = PeftModel.from_pretrained(base_model, adapter_dir)
     model.to(device)
     model.eval()
     return tokenizer, model

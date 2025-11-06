@@ -5,13 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="64d5d59f-87fe-49b9-a415-8156c53f926c" name="Changes" comment="archivo duplicado">
-      <change beforePath="$PROJECT_DIR$/.idea/Niggahush_dev.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/Niggahush_dev.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/AuraLLM/AuraLoRA/chat_with_aura.py" beforeDir="false" afterPath="$PROJECT_DIR$/AuraLLM/AuraLoRA/chat_with_aura.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/AuraLLM/AuraLoRA/convert_to_gguf.sh" beforeDir="false" afterPath="$PROJECT_DIR$/AuraLLM/AuraLoRA/convert_to_gguf.sh" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/AuraLLM/AuraLoRA/download_base_gguf.py" beforeDir="false" afterPath="$PROJECT_DIR$/AuraLLM/AuraLoRA/download_base_gguf.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/AuraLLM/AuraLoRA/train_aura_lora_es.py" beforeDir="false" afterPath="$PROJECT_DIR$/AuraLLM/AuraLoRA/train_aura_lora_es.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/AuraLLM/train_tensordock/train_tensordock.py" beforeDir="false" afterPath="$PROJECT_DIR$/AuraLLM/train_tensordock/train_tensordock.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -45,12 +40,12 @@
     &quot;assignee&quot;: &quot;zquintero246&quot;
   }
 }</component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/zquintero246/Aura_dev",
-    "accountId": "bd9a1c93-f78e-4104-81f5-49dffce935f9"
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/zquintero246/Aura_dev&quot;,
+    &quot;accountId&quot;: &quot;693fb070-f485-4561-9ba3-a125cdb1de2f&quot;
   }
-}]]></component>
+}</component>
   <component name="HighlightingSettingsPerFile">
     <setting file="file://$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry/CausalMultiheadAttention.py" root0="SKIP_INSPECTION" />
   </component>
@@ -66,41 +61,34 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ASKED_SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.CausalMultiheadAttention.executor": "Run",
-    "Python.PreprocessingData.executor": "Run",
-    "Python.TestScript.executor": "Run",
-    "Python.chat_with_aura.executor": "Run",
-    "Python.download_base_gguf.executor": "Run",
-    "Python.merge_lora_to_base.executor": "Run",
-    "Python.model_testing.executor": "Run",
-    "Python.preprocesamiento.executor": "Run",
-    "Python.test.executor": "Run",
-    "Python.test_ddp.executor": "Run",
-    "Python.tokenizer.executor": "Run",
-    "Python.train_aura_lora_es.executor": "Run",
-    "Python.train_gpt2_spanish.executor": "Run",
-    "Python.train_minigpt.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "SHELLCHECK.PATH": "I do mind",
-    "Shell Script.convert_to_gguf.sh.executor": "Run",
-    "git-widget-placeholder": "main",
-    "last_opened_file_path": "/home/hotpot/Proyectos/Aura_dev/AuraLLM/train_DDP",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ASKED_SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.CausalMultiheadAttention.executor&quot;: &quot;Run&quot;,
+    &quot;Python.PreprocessingData.executor&quot;: &quot;Run&quot;,
+    &quot;Python.TestScript.executor&quot;: &quot;Run&quot;,
+    &quot;Python.model_testing.executor&quot;: &quot;Run&quot;,
+    &quot;Python.preprocesamiento.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_ddp.executor&quot;: &quot;Run&quot;,
+    &quot;Python.tokenizer.executor&quot;: &quot;Run&quot;,
+    &quot;Python.train_gpt2_spanish.executor&quot;: &quot;Run&quot;,
+    &quot;Python.train_minigpt.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/hotpot/Proyectos/Aura_dev/AuraLLM/train_DDP&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RdControllerToolWindowsLayoutState" isNewUi="true">
     <layout>
       <window_info id="Bookmarks" side_tool="true" />
@@ -109,34 +97,32 @@
       <window_info id="Backup and Sync History" />
       <window_info id="Pull Requests" />
       <window_info id="Learn" show_stripe_button="false" />
-      <window_info active="true" content_ui="combo" id="Project" order="0" visible="true" weight="0.22838542" />
+      <window_info active="true" content_ui="combo" id="Project" order="0" sideWeight="0.5020534" visible="true" weight="0.18671875" />
       <window_info id="Commit" order="1" weight="0.25" />
-      <window_info id="Structure" order="2" side_tool="true" weight="0.25" />
+      <window_info id="Structure" order="2" sideWeight="0.49794662" side_tool="true" weight="0.18671875" />
       <window_info anchor="bottom" id="Database Changes" />
       <window_info anchor="bottom" id="TypeScript" />
       <window_info anchor="bottom" id="TODO" />
       <window_info anchor="bottom" id="File Transfer" />
       <window_info anchor="bottom" id="HfCacheToolWindow" />
-      <window_info anchor="bottom" id="PythonProcessOutput" />
-      <window_info anchor="bottom" id="Find" />
-      <window_info anchor="bottom" id="Version Control" order="0" />
+      <window_info anchor="bottom" id="Version Control" order="0" weight="0.25823644" />
       <window_info anchor="bottom" id="Problems" order="1" />
       <window_info anchor="bottom" id="Problems View" order="2" />
-      <window_info anchor="bottom" id="Terminal" order="3" weight="0.34447673" />
+      <window_info active="true" anchor="bottom" id="Terminal" order="3" visible="true" weight="0.9035853" />
       <window_info anchor="bottom" id="Services" order="4" />
       <window_info anchor="bottom" id="Python Packages" order="5" weight="0.1" />
       <window_info anchor="bottom" id="Python Console" order="6" weight="0.1" />
-      <window_info active="true" anchor="bottom" id="Run" order="7" visible="true" weight="0.34447673" />
-      <window_info anchor="right" id="Endpoints" />
+      <window_info anchor="bottom" id="Find" order="7" weight="0.32994187" />
       <window_info anchor="right" id="Coverage" side_tool="true" />
       <window_info anchor="right" id="SciView" />
       <window_info anchor="right" id="Jupyter Variables" side_tool="true" />
-      <window_info anchor="right" content_ui="combo" id="Notifications" order="0" weight="0.25" />
+      <window_info anchor="right" id="Notifications" order="0" weight="0.32994792" />
       <window_info anchor="right" id="AIAssistant" order="1" weight="0.25" />
       <window_info anchor="right" id="Database" order="2" weight="0.25" />
       <window_info anchor="right" id="Gradle" order="3" weight="0.25" />
       <window_info anchor="right" id="Maven" order="4" weight="0.25" />
-      <window_info anchor="right" id="Plots" order="5" weight="0.1" />
+      <window_info anchor="right" id="Plots" order="5" weight="0.32994792" />
+      <window_info anchor="right" id="Endpoints" order="6" weight="0.32994792" />
     </layout>
   </component>
   <component name="RecentsManager">
@@ -156,8 +142,8 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-c7e53b3be11b-JavaScript-PY-253.28086.55" />
-        <option value="bundled-python-sdk-43f194345aec-a8a68a0a8659-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-253.28086.55" />
+        <option value="bundled-js-predefined-d6986cc7102b-75c7c973e13d-JavaScript-PY-253.27864.50" />
+        <option value="bundled-python-sdk-a9a34e35382e-30684d0e00d4-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-253.27864.50" />
       </set>
     </attachedChunks>
   </component>
@@ -203,8 +189,6 @@
       <workItem from="1761774148034" duration="14932000" />
       <workItem from="1761798120268" duration="1277000" />
       <workItem from="1761799860983" duration="38215000" />
-      <workItem from="1762394313603" duration="1141000" />
-      <workItem from="1762395890771" duration="2996000" />
     </task>
     <task id="LOCAL-00001" summary="Nombres lolololol">
       <option name="closed" value="true" />
@@ -259,19 +243,14 @@
     <option name="LAST_COMMIT_MESSAGE" value="archivo duplicado" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/Niggahush_dev$CausalMultiheadAttention.coverage" NAME="CausalMultiheadAttention Coverage Results" MODIFIED="1755900832014" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry" />
-    <SUITE FILE_PATH="coverage/Niggahush_dev$preprocesamiento.coverage" NAME="preprocesamiento Coverage Results" MODIFIED="1755318809340" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/test" />
-    <SUITE FILE_PATH="coverage/Aura_dev$train_aura_lora_es.coverage" NAME="train_aura_lora_es Coverage Results" MODIFIED="1762397331326" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/AuraLLM/AuraLoRA" />
-    <SUITE FILE_PATH="coverage/Aura_dev$chat_with_aura.coverage" NAME="chat_with_aura Coverage Results" MODIFIED="1762398444252" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/AuraLLM/AuraLoRA" />
-    <SUITE FILE_PATH="coverage/Aura_dev$test.coverage" NAME="test Coverage Results" MODIFIED="1762397130701" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/AuraLLM/AuraLoRA/models" />
-    <SUITE FILE_PATH="coverage/Aura$train_gpt2_spanish.coverage" NAME="train_gpt2_spanish Coverage Results" MODIFIED="1761193103722" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/AuraLM/Gpt-2PaperTry" />
     <SUITE FILE_PATH="coverage/Niggahush_dev$tokenizer.coverage" NAME="tokenizer Coverage Results" MODIFIED="1755320499620" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/test" />
+    <SUITE FILE_PATH="coverage/Niggahush_dev$CausalMultiheadAttention.coverage" NAME="CausalMultiheadAttention Coverage Results" MODIFIED="1755900832014" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry" />
     <SUITE FILE_PATH="coverage/Niggahush_dev$model_testing.coverage" NAME="model_testing Coverage Results" MODIFIED="1755324181272" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/test" />
-    <SUITE FILE_PATH="coverage/Niggahush_dev$train_minigpt.coverage" NAME="train_minigpt Coverage Results" MODIFIED="1755322469550" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/test" />
-    <SUITE FILE_PATH="coverage/Niggahush_dev$PreprocessingData.coverage" NAME="PreprocessingData Coverage Results" MODIFIED="1755644916384" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry" />
-    <SUITE FILE_PATH="coverage/Niggahush_dev$TestScript.coverage" NAME="TestScript Coverage Results" MODIFIED="1756624093805" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry" />
     <SUITE FILE_PATH="coverage/Aura$test_ddp.coverage" NAME="test_ddp Coverage Results" MODIFIED="1761193086676" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/AuraLM/Gpt-2PaperTry" />
-    <SUITE FILE_PATH="coverage/Aura_dev$download_base_gguf.coverage" NAME="download_base_gguf Coverage Results" MODIFIED="1762395000998" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/AuraLLM/AuraLoRA" />
-    <SUITE FILE_PATH="coverage/Aura_dev$merge_lora_to_base.coverage" NAME="merge_lora_to_base Coverage Results" MODIFIED="1762398351573" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/AuraLLM/AuraLoRA" />
+    <SUITE FILE_PATH="coverage/Niggahush_dev$preprocesamiento.coverage" NAME="preprocesamiento Coverage Results" MODIFIED="1755318809340" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/test" />
+    <SUITE FILE_PATH="coverage/Niggahush_dev$train_minigpt.coverage" NAME="train_minigpt Coverage Results" MODIFIED="1755322469550" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/test" />
+    <SUITE FILE_PATH="coverage/Aura$train_gpt2_spanish.coverage" NAME="train_gpt2_spanish Coverage Results" MODIFIED="1761193103722" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/AuraLM/Gpt-2PaperTry" />
+    <SUITE FILE_PATH="coverage/Niggahush_dev$TestScript.coverage" NAME="TestScript Coverage Results" MODIFIED="1756624093805" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry" />
+    <SUITE FILE_PATH="coverage/Niggahush_dev$PreprocessingData.coverage" NAME="PreprocessingData Coverage Results" MODIFIED="1755644916384" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/NiggahushLM/Gpt-2PaperTry" />
   </component>
 </project>

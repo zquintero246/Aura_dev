@@ -16,13 +16,13 @@ Este documento describe cómo preparar TensorDock y ejecutar un entrenamiento de
    ```bash
    sudo apt install -y build-essential git python3 python3-venv python3-dev
    ```
-4. Crea un entorno virtual aislado e instala los paquetes principales (PyTorch CUDA 11.8, Transformers, bitsandbytes, etc.):
+4. Crea un entorno virtual aislado e instala los paquetes principales (PyTorch CUDA 12.1, Transformers, bitsandbytes, etc.):
    ```bash
    python3 -m venv ~/aura-env
    source ~/aura-env/bin/activate
    pip install --upgrade pip
-   pip install torch --index-url https://download.pytorch.org/whl/cu118
-   pip install transformers datasets tqdm sentencepiece bitsandbytes
+   pip install torch==2.5.1+cu121  --index-url https://download.pytorch.org/whl/cu121
+   pip install transformers datasets tqdm sentencepiece bitsandbytes tensorboard psutil
    ```
 
 ## 2. Dataset en español listo sin pasos manuales

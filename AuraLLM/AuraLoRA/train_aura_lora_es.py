@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import torch
 from datasets import load_dataset
@@ -12,7 +12,7 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
-    DataCollatorForLanguageModeling,
+    default_data_collator,
     Trainer,
     TrainingArguments,
 )
@@ -22,6 +22,7 @@ DATASET_PATH = os.path.join(os.path.dirname(__file__), "datasets", "aura_persona
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "models", "lora_aura_es")
 BASE_MODEL_ID = "IIC/RigoChat-7b-v2"
 MODEL_MAX_LENGTH = 512
+PROMPT_TEMPLATE = "### Instrucción:\n{instruction}\n\n### Respuesta:\n"
 
 
 def parse_args() -> argparse.Namespace:
@@ -92,25 +93,34 @@ def load_training_dataset(dataset_path: str, tokenizer: AutoTokenizer):
     def format_example(example: Dict[str, str]) -> Dict[str, str]:
         instruction = example["instruction"].strip()
         output = example["output"].strip()
-        prompt = (
-            "### Instrucción:\n"
-            f"{instruction}\n\n"
-            "### Respuesta:\n"
-            f"{output}\n"
-        )
-        return {"text": prompt}
-
-    dataset = dataset.map(format_example, remove_columns=dataset["train"].column_names)
-
-    def tokenize_function(example: Dict[str, str]) -> Dict[str, List[int]]:
-        return tokenizer(
-            example["text"],
+        prompt = PROMPT_TEMPLATE.format(instruction=instruction)
+        full_text = prompt + output + tokenizer.eos_token
+        tokenized_full = tokenizer(
+            full_text,
             truncation=True,
             max_length=MODEL_MAX_LENGTH,
             padding="max_length",
         )
+        prompt_tokens = tokenizer(
+            prompt,
+            truncation=True,
+            max_length=MODEL_MAX_LENGTH,
+            add_special_tokens=False,
+        )["input_ids"]
 
-    tokenized = dataset["train"].map(tokenize_function, batched=True, remove_columns=["text"])
+        labels = tokenized_full["input_ids"].copy()
+        prompt_length = min(len(prompt_tokens), MODEL_MAX_LENGTH)
+        labels[:prompt_length] = [-100] * prompt_length
+        attention_mask = tokenized_full["attention_mask"]
+        labels = [label if mask == 1 else -100 for label, mask in zip(labels, attention_mask)]
+
+        tokenized_full["labels"] = labels
+        return tokenized_full
+
+    tokenized = dataset["train"].map(
+        format_example,
+        remove_columns=dataset["train"].column_names,
+    )
     tokenized.set_format(type="torch")
     return tokenized
 
@@ -129,8 +139,9 @@ def create_trainer(model: AutoModelForCausalLM, tokenizer: AutoTokenizer, tokeni
         model = prepare_model_for_kbit_training(model)
 
     model = get_peft_model(model, peft_config)
+    model.print_trainable_parameters()
 
-    data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    data_collator = default_data_collator
 
     training_args = TrainingArguments(
         output_dir=output_dir,

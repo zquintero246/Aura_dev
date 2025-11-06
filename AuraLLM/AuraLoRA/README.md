@@ -9,6 +9,7 @@ Este directorio contiene todos los recursos necesarios para entrenar y desplegar
 - `merge_lora_to_base.py`: fusiona el adaptador LoRA con el modelo base.
 - `convert_to_gguf.sh`: conversión del modelo fusionado a formato GGUF listo para llama.cpp.
 - `download_base_gguf.py`: descarga y guarda el modelo base en formato GGUF como `models/aura.gguf`.
+- `chat_with_aura.py`: prueba interactiva para validar el adaptador o el modelo fusionado.
 
 ## Requisitos
 
@@ -42,7 +43,9 @@ pip install "transformers>=4.36" "peft>=0.7.0" "datasets>=2.16" "bitsandbytes>=0
    python train_aura_lora_es.py
    ```
 
-   El script detecta automáticamente la memoria GPU: usa QLoRA (4 bits) cuando la GPU tiene menos de 24 GB de VRAM, o entrena en FP16 si hay más recursos. Los pesos del adaptador se guardan en `models/lora_aura_es/`.
+   El script detecta automáticamente la memoria GPU: usa QLoRA (4 bits) cuando la GPU tiene menos de 24 GB de VRAM, o entrena en FP16 si hay más recursos. Los pesos del adaptador se guardan en `models/lora_aura_es/` junto al tokenizador.
+
+   Cada ejemplo del dataset se entrena con el *prompt template* `### Instrucción:\n{...}\n\n### Respuesta:\n`, de modo que las etiquetas solo cubren la sección de respuesta. Utiliza la misma estructura al generar textos con el adaptador.
 
 ## Fusión del LoRA con el modelo base
 
@@ -65,6 +68,23 @@ cd AuraLLM/AuraLoRA
 ```
 
 El archivo resultante se guardará como `models/aura_final.gguf`.
+
+## Validar el comportamiento tras el entrenamiento
+
+Para comprobar rápidamente que la personalidad en español se aplicó al adaptador LoRA o al modelo fusionado, utiliza el script interactivo:
+
+```bash
+cd AuraLLM/AuraLoRA
+python chat_with_aura.py "Hola, ¿quién eres?"
+```
+
+De forma predeterminada el script carga el modelo base `IIC/RigoChat-7b-v2` y aplica el adaptador ubicado en `models/lora_aura_es/`. Si ya fusionaste los pesos, puedes apuntar al modelo completo:
+
+```bash
+python chat_with_aura.py --merged models/aura_es_merged "Explícame tu misión"
+```
+
+Recuerda que el prompt interno sigue el formato `### Instrucción / ### Respuesta`. Si realizas tus propias pruebas con `transformers`, construye el mismo contexto para obtener respuestas consistentes con la personalidad de Aura.
 
 ## Uso en llama.cpp
 

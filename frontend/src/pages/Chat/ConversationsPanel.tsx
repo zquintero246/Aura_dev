@@ -11,7 +11,7 @@ type Props = {
   pinned: Conversation[];
   /** Conversaciones recientes */
   recent: Conversation[];
-  /** Qué item está seleccionado para pintar el estado activo */
+  /** QuǸ item estǭ seleccionado para pintar el estado activo */
   selectedId?: string;
   /** Buscar (texto libre) */
   onSearch?: (q: string) => void;
@@ -24,6 +24,8 @@ type Props = {
   /** Actualizar título desde el ChatPanel */
   onUpdateTitle?: (id: string, title: string) => void;
   onTogglePin?: (id: string, nextPinned: boolean) => void;
+  /** Borrar conversación */
+  onDelete?: (id: string) => void;
 };
 
 /**
@@ -40,6 +42,7 @@ const ConversationsPanel: React.FC<Props> = ({
   onCreate,
   railWidth = 72,
   onTogglePin,
+  onDelete,
 }) => {
   return (
     <aside
@@ -54,7 +57,7 @@ const ConversationsPanel: React.FC<Props> = ({
         <div className="flex items-center gap-2">
           <h2 className="text-[20px] md:text-[22px] font-semibold text-white">Conversaciones</h2>
 
-          {/* (Opcional) icono para acciones rápidas en el título */}
+          {/* (Opcional) icono para acciones rǭpidas en el título */}
           <button
             onClick={() => {
               try {
@@ -104,6 +107,7 @@ const ConversationsPanel: React.FC<Props> = ({
                 pinned
                 onClick={() => onSelect?.(c.id)}
                 onMenuPinToggle={() => onTogglePin?.(c.id, false)}
+                onMenuDelete={() => onDelete?.(c.id)}
               />
             ))
           )}
@@ -135,6 +139,7 @@ const ConversationsPanel: React.FC<Props> = ({
                 label={c.title}
                 onClick={() => onSelect?.(c.id)}
                 onMenuPinToggle={() => onTogglePin?.(c.id, true)}
+                onMenuDelete={() => onDelete?.(c.id)}
               />
             ))
           )}
@@ -176,12 +181,14 @@ function Row({
   pinned,
   onClick,
   onMenuPinToggle,
+  onMenuDelete,
 }: {
   label: string;
   active?: boolean;
   pinned?: boolean;
   onClick?: () => void;
   onMenuPinToggle?: () => void;
+  onMenuDelete?: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
   return (
@@ -217,6 +224,16 @@ function Row({
                 }}
               >
                 {pinned ? 'Desanclar' : 'Anclar'} conversación
+              </button>
+              <div className="h-px bg-white/10 mx-1" />
+              <button
+                className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 text-red-400"
+                onClick={() => {
+                  setOpen(false);
+                  onMenuDelete?.();
+                }}
+              >
+                Borrar conversación
               </button>
             </div>
           )}

@@ -132,6 +132,40 @@ class MongoChatService
         }
     }
 
+    /**
+     * Update conversation title only if it still has a default placeholder title.
+     */
+    public function updateTitleIfDefault(string $conversationId, int|string $userId, string $newTitle): bool
+    {
+        if (!$this->available()) return false;
+        $newTitle = trim($newTitle);
+        if ($newTitle === '') return false;
+        try {
+            $convId = $this->toObjectId($conversationId);
+            // Common placeholder variants (encoding-safe)
+            $placeholders = [
+                'Nueva conversación',
+                'Nueva conversacion',
+                'Nueva conversaci�n',
+                'Nueva conversaci��n',
+            ];
+            $filter = [
+                '_id' => $convId ?? $conversationId,
+                'user_id' => (string) $userId,
+                'title' => ['$in' => $placeholders],
+            ];
+            $update = ['$set' => ['title' => $newTitle]];
+            $bulk = new \MongoDB\Driver\BulkWrite();
+            $bulk->update($filter, $update, ['multi' => false, 'upsert' => false]);
+            $result = $this->manager->executeBulkWrite($this->db . '.conversations', $bulk);
+            // If any doc was modified or matched, we consider it success
+            return ($result->getModifiedCount() + $result->getUpsertedCount()) > 0;
+        } catch (\Throwable $e) {
+            Log::error('MongoChatService:updateTitleIfDefault failed', ['error' => $e->getMessage()]);
+            return false;
+        }
+    }
+
     private function toObjectId(string $id): ?\MongoDB\BSON\ObjectId
     {
         try {

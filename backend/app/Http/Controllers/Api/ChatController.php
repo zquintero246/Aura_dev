@@ -46,7 +46,8 @@ class ChatController extends Controller
             if (($m['role'] ?? '') === 'user') { $lastUserText = (string) ($m['content'] ?? ''); break; }
         }
 
-        // Helper to log exchange into Mongo (no-op if Mongo not available)
+        // Helper to log exchange into Mongo (no-op if Mongo not available) and
+        // opportunistically auto-title the conversation based on the first exchange.
         $logExchange = function (string $assistantContent) use ($request, $validated, $lastUserText) {
             try {
                 /** @var MongoChatService $mongo */
@@ -56,6 +57,11 @@ class ChatController extends Controller
                 $userId = optional($request->user())->id;
                 if ($convId && $userId && $lastUserText !== '') {
                     $mongo->appendExchange($convId, $lastUserText, $assistantContent, $userId);
+                    // Generate a concise title (max 6 words) from the first user + assistant turn
+                    $autoTitle = $this->generateAutoTitle($lastUserText, (string) $assistantContent);
+                    if ($autoTitle !== '') {
+                        $mongo->updateTitleIfDefault($convId, $userId, $autoTitle);
+                    }
                 }
             } catch (\Throwable $e) { /* ignore logging errors */ }
         };
@@ -522,5 +528,81 @@ class ChatController extends Controller
                 'model' => $model,
             ], $isTimeout ? 504 : 500);
         }
+    }
+
+    /**
+     * Build a short, descriptive title from the first exchange.
+     * Rules:
+     *  - Max 6 words
+     *  - No unnecessary punctuation at the ends
+     *  - Avoid generic titles; derive from user's first message
+     */
+    private function generateAutoTitle(string $userText, string $assistantText = ''): string
+    {
+        $t = trim(preg_replace('/\s+/u', ' ', (string) $userText));
+        if ($t === '') return '';
+
+        // Remove leading Spanish inverted question/exclamation marks and trailing punctuation
+        $t = preg_replace('/^[¿¡\s]+/u', '', $t);
+        $t = preg_replace('/[\s\.?¡!¿,;:]+$/u', '', $t);
+
+        $lower = mb_strtolower($t, 'UTF-8');
+
+        // Common openings -> transform into concise imperatives or patterns
+        $replacements = [
+            // Ideas / brainstorming
+            '/^dame\s+ideas\s+para\s+/u' => 'Ideas para ',
+            '/^ideas\s+para\s+/u' => 'Ideas para ',
+            // How to ...
+            '/^(como|c\u00f3mo)\s+hacer\s+/u' => 'Hacer ',
+            '/^(como|c\u00f3mo)\s+crear\s+/u' => 'Crear ',
+            '/^(como|c\u00f3mo)\s+hago\s+/u' => 'Crear ',
+            '/^(como|c\u00f3mo)\s+puedo\s+/u' => '',
+            // Intent/statements
+            '/^quiero\s+/u' => '',
+            '/^quisiera\s+/u' => '',
+            '/^necesito\s+/u' => '',
+            '/^por\s+favor\s+/u' => '',
+        ];
+
+        foreach ($replacements as $pattern => $subst) {
+            if (preg_match($pattern, $lower)) {
+                // Replace based on original casing by slicing the original string
+                $m = [];
+                if (preg_match($pattern, $t, $m)) {
+                    $t = preg_replace($pattern, $subst, $t);
+                } else {
+                    $t = preg_replace($pattern, $subst, $t);
+                }
+                break;
+            }
+        }
+
+        // Take the first sentence
+        $parts = preg_split('/(?<=[\.!?])\s+/u', $t);
+        $first = is_array($parts) && count($parts) ? trim($parts[0]) : $t;
+        $first = preg_replace('/[\s\.?¡!¿,;:]+$/u', '', $first);
+
+        // Limit to 6 words
+        $words = preg_split('/\s+/u', $first);
+        if (is_array($words) && count($words) > 6) {
+            $first = implode(' ', array_slice($words, 0, 6));
+        }
+
+        // Ensure first letter uppercase (preserve acronyms like API, Node.js)
+        if ($first !== '') {
+            $first = mb_strtoupper(mb_substr($first, 0, 1, 'UTF-8'), 'UTF-8') . mb_substr($first, 1, null, 'UTF-8');
+        }
+
+        // Avoid fallback generic titles
+        $generic = [
+            'nueva conversacion', 'nueva conversación', 'nuevo chat', 'conversacion con ia', 'charla general', 'chat general'
+        ];
+        $cmp = mb_strtolower($first, 'UTF-8');
+        foreach ($generic as $g) {
+            if ($cmp === $g) return '';
+        }
+
+        return trim($first);
     }
 }

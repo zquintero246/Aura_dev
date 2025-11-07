@@ -19,3 +19,24 @@ CREATE TABLE personal_access_tokens (
     last_used_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Tabla principal para Home Assistant (si no existe)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'homes'
+    ) THEN
+        CREATE TABLE public.homes (
+            user_id VARCHAR(255) PRIMARY KEY,
+            city VARCHAR(255),
+            country VARCHAR(255),
+            lat NUMERIC(10,6),
+            lon NUMERIC(10,6),
+            created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_homes_country ON public.homes(country);
+        CREATE INDEX IF NOT EXISTS idx_homes_city ON public.homes(city);
+    END IF;
+END$$;

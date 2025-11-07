@@ -1,29 +1,37 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { registerUserHome } from '../../lib/homeApi';
+import { saveLocation } from '../../lib/location';
 import {
   getLatamCountries,
+  getStatesByCountry,
+  getCitiesByState,
   getCitiesByCountry,
   getPositionByCity,
   type LatamCountry,
 } from '../../lib/countriesNow';
 import WorldMap from './components/WorldMap';
 
-type Props = {
-  userId: string;
-  onDone: () => void;
-};
+type Props = { userId: string; onDone: () => void };
 
 export default function HomeRegistration({ userId, onDone }: Props) {
   const [countries, setCountries] = useState<LatamCountry[]>([]);
   const [countryCode, setCountryCode] = useState<string>('CO');
   const [countryName, setCountryName] = useState<string>('Colombia');
+  const [states, setStates] = useState<string[]>([]);
+  const [stateName, setStateName] = useState<string>('');
   const [cities, setCities] = useState<string[]>([]);
   const [city, setCity] = useState<string>('Bucaramanga');
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [loadingCountries, setLoadingCountries] = useState(false);
+  const [loadingStates, setLoadingStates] = useState(false);
   const [loadingCities, setLoadingCities] = useState(false);
   const [loadingPos, setLoadingPos] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Helper to display cleaner labels for departments/states
+  const prettyState = (s: string) =>
+    (s || '')
+      .replace(/\s+(Department|State|Province|Region|Governorate|Prefecture|County|District)\s*$/i, '')
+      .trim();
 
   // Cargar países LATAM (cacheados en memoria)
   useEffect(() => {
@@ -40,37 +48,82 @@ export default function HomeRegistration({ userId, onDone }: Props) {
     })();
   }, []);
 
-  // Cargar ciudades cuando cambie el país
+  // Cargar estados/departamentos cuando cambie el país
   useEffect(() => {
     (async () => {
       if (!countryName) return;
+      setLoadingStates(true);
+      setStates([]);
+      setStateName('');
+      try {
+        const sts = await getStatesByCountry(countryName);
+        setStates(sts);
+        if (sts.length > 0) {
+          setStateName((prev) => (prev && sts.includes(prev) ? prev : sts[0]));
+        } else {
+          // Si no hay estados, cargar ciudades por país
+          setLoadingCities(true);
+          const items = await getCitiesByCountry(countryName);
+          setCities(items);
+          if (!items.includes(city) && items[0]) setCity(items[0]);
+          setLoadingCities(false);
+        }
+      } finally {
+        setLoadingStates(false);
+      }
+    })();
+  }, [countryName]);
+
+  // Cargar ciudades cuando cambie el estado
+  useEffect(() => {
+    (async () => {
+      if (!countryName) return;
+      if (!states.length) return; // Cuando no hay estados, ya se cargó por país
       setLoadingCities(true);
-      const items = await getCitiesByCountry(countryName);
+      const items = await getCitiesByState(countryName, stateName || states[0]);
       setCities(items);
       if (!items.includes(city) && items[0]) setCity(items[0]);
       setLoadingCities(false);
     })();
-  }, [countryName]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateName, states.length]);
 
   // Posición de la ciudad
   useEffect(() => {
-    (async () => {
-      if (!countryName || !city) return setCoords(null);
-      setLoadingPos(true);
-      const p = await getPositionByCity(countryName, city);
-      setCoords(p);
-      setLoadingPos(false);
-    })();
-  }, [countryName, city]);
+    let cancel = false;
+    const t = window.setTimeout(async () => {
+      try {
+        if (!countryName || !city) {
+          if (!cancel) setCoords(null);
+          if (!cancel) setLoadingPos(false);
+          return;
+        }
+        setLoadingPos(true);
+        const p = await getPositionByCity(countryName, city, countryCode);
+        if (!cancel) setCoords(p ? { lat: p.lat, lon: p.lon } : null);
+      } catch {
+        if (!cancel) setCoords(null);
+      } finally {
+        if (!cancel) setLoadingPos(false);
+      }
+    }, 300);
+    return () => {
+      cancel = true;
+      window.clearTimeout(t);
+    };
+  }, [countryName, countryCode, city]);
 
-  const canSubmit = useMemo(() => !!countryCode && !!city && !submitting, [countryCode, city, submitting]);
+  const canSubmit = useMemo(() => !!countryCode && !!city && !!coords && !submitting, [countryCode, city, coords, submitting]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
     setSubmitting(true);
     try { if (coords) localStorage.setItem('home:coords', JSON.stringify(coords)); } catch {}
-    await registerUserHome({ userId, country: countryName, city, lat: coords?.lat, lon: coords?.lon });
+    if (coords) {
+      await saveLocation({ country: countryName, city, latitude: coords.lat, longitude: coords.lon });
+      try { localStorage.setItem('home:registered', '1'); } catch {}
+    }
     setSubmitting(false);
     onDone();
   };
@@ -125,6 +178,25 @@ export default function HomeRegistration({ userId, onDone }: Props) {
             )}
           </select>
 
+          {states.length > 0 && (
+            <>
+              <label className="text-sm text-white/70">Departamento/Estado</label>
+              <select
+                value={stateName}
+                onChange={(e) => setStateName(e.target.value)}
+                className="h-11 rounded-lg bg-[#0b1020] ring-1 ring-white/15 px-3 outline-none focus:ring-2 focus:ring-[#8B3DFF]"
+              >
+                {loadingStates ? (
+                  <option>Cargando departamentos…</option>
+                ) : (
+                  states.map((s) => (
+                    <option key={s} value={s}>{prettyState(s)}</option>
+                  ))
+                )}
+              </select>
+            </>
+          )}
+
           <label className="text-sm text-white/70">Ciudad</label>
           <select
             value={city}
@@ -144,7 +216,11 @@ export default function HomeRegistration({ userId, onDone }: Props) {
           <div className="text-sm text-white/70">
             <div>Coordenadas</div>
             <div className="mt-1 rounded-lg bg-[#0b1020] ring-1 ring-white/15 px-3 py-2 text-white/80">
-              {loadingPos ? 'Buscando…' : coords ? `${coords.lat.toFixed(5)}, ${coords.lon.toFixed(5)}` : '—'}
+              {loadingPos
+                ? 'Buscando coordenadas...'
+                : coords
+                ? `Coordenadas: ${coords.lat.toFixed(5)}, ${coords.lon.toFixed(5)}`
+                : '—'}
             </div>
           </div>
 

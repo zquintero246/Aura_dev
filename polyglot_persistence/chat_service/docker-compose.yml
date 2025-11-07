@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  chat_api:
+    build: .
+    container_name: chat_api
+    ports:
+    - "5080:5080"
+    environment:
+    - PORT=5080
+    - FLASK_ENV=production
+    - DB_HOST=aura_postgres
+    - DB_PORT=5432
+    - DB_DATABASE=aura_main
+    - DB_USERNAME=aura_user
+    - DB_PASSWORD=aura_pass
+    - MONGO_URI=mongodb://aura_admin:aura_pass@aura_mongo:27017/aura_chat?authSource=admin
+    - MONGO_DB=aura_chat
+    - CORS_ALLOW_ORIGINS=http://127.0.0.1:4028,http://localhost:4028
+    networks:
+      - aura_network
+    restart: unless-stopped
+
+networks:
+  aura_network:
+    external: true

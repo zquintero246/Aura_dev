@@ -5,6 +5,7 @@ Este documento detalla, paso a paso y con diagramas, como se unifico la identida
 Nota: donde veas rutas de archivos, puedes hacer clic en ellas desde tu IDE para abrir el archivo.
 
 ## Resumen Rapido
+
 - Identidad y autenticacion en PostgreSQL (Laravel + Sanctum).
 - Conversaciones y mensajes en MongoDB (microservicio Flask `chat_api`).
 - El frontend obtiene un token personal (Sanctum PAT: `id|secret`) y lo envia en `Authorization: Bearer ...` a Flask.
@@ -26,11 +27,11 @@ Nota: donde veas rutas de archivos, puedes hacer clic en ellas desde tu IDE para
 | (microservices/    +--------------------+                                   |
 |  chat_service/)    |                                                        |
 +---------+----------+                                                        |
-          |                                                                 
-          v                                                                 
-+---------+----------+                                                        
-|       MongoDB      |                                                        
-|     aura_chat      |                                                        
+          |
+          v
++---------+----------+
+|       MongoDB      |
+|     aura_chat      |
 | conversations,msgs |
 +--------------------+
 ```
@@ -42,6 +43,7 @@ Captura sugerida: `docs/images/overview.png` (diagrama de servicios y red `aura_
 ## Diagramas de Secuencia (Mermaid)
 
 ### Emision de Token (PAT)
+
 ```mermaid
 sequenceDiagram
     participant U as Usuario (SPA)
@@ -58,6 +60,7 @@ sequenceDiagram
 ```
 
 ### Inicio y Mensajeria del Chat
+
 ```mermaid
 sequenceDiagram
     participant FE as Frontend
@@ -84,6 +87,7 @@ sequenceDiagram
 ```
 
 Capturas sugeridas:
+
 - `docs/images/token_issue.png` (respuesta JSON de `/api/auth/token`).
 - `docs/images/chat_history.png` (historial vacio y luego con items).
 - `docs/images/mongo_conversations.png` (coleccion `conversations` en Mongo Express).
@@ -93,7 +97,9 @@ Capturas sugeridas:
 ## Modelos y Esquemas
 
 ### Sanctum (PostgreSQL)
+
 Tabla: `personal_access_tokens`
+
 - id (bigint, PK)
 - tokenable_type (string)
 - tokenable_id (bigint -> `users.id`)
@@ -105,7 +111,9 @@ Tabla: `personal_access_tokens`
 - created_at, updated_at
 
 ### MongoDB (aura_chat)
+
 - conversations
+
 ```json
 {
   "_id": { "$oid": "..." },
@@ -116,7 +124,9 @@ Tabla: `personal_access_tokens`
   "last_message_at": { "$date": "..." }
 }
 ```
+
 - messages
+
 ```json
 {
   "_id": { "$oid": "..." },
@@ -127,17 +137,21 @@ Tabla: `personal_access_tokens`
   "created_at": { "$date": "..." }
 }
 ```
+
 Indices:
+
 - conversations: `{ user_id: 1, last_message_at: -1 }`
 - messages: `{ conversation_id: 1, created_at: 1 }`
 
 Capturas sugeridas:
+
 - `docs/images/postgres_personal_access_tokens.png` (tabla tokens en PG).
 - `docs/images/mongo_messages.png` (coleccion `messages` ordenada por fecha).
 
 ---
 
 ## Mapa de Codigo (referencias)
+
 - Emision PAT: backend/app/Http/Controllers/Api/TokenController.php:1
 - Rutas API: backend/routes/api.php:1
 - Bootstrap rutas + Sanctum SPA: backend/bootstrap/app.php:1
@@ -168,6 +182,7 @@ Captura sugerida: `docs/images/network.png` (salida de `docker ps` + `docker net
 ---
 
 ## Operacion del Frontend
+
 - ensureChatToken() (frontend/src/lib/auth.ts:1)
   - Lee `localStorage.aura:pat`; si falta, llama `POST /api/auth/token` y guarda el token.
 - Interceptor chatApi (frontend/src/lib/chatApi.ts:1)
@@ -177,25 +192,28 @@ Captura sugerida: `docs/images/network.png` (salida de `docker ps` + `docker net
   - Al pulsar “Nueva conversacion” crea la conversacion en Flask y reemplaza el id temporal por el real (evento `aura:conversation:realized`).
 
 Capturas sugeridas:
+
 - `docs/images/localstorage_token.png` (DevTools -> Application -> Local Storage -> aura:pat).
 - `docs/images/network_tab.png` (DevTools -> Network mostrando `Authorization: Bearer ...`).
 
 ---
 
 ## Verificacion y Pruebas (paso a paso)
-1) Autenticacion y token
+
+1. Autenticacion y token
    - Frontend logueado -> `POST /api/auth/token` devuelve `id|secret`.
    - Ver `localStorage.aura:pat` y que el interceptor anade Authorization.
-2) Historial
+2. Historial
    - `GET /chat/history` -> 200 `{ conversations: [...] }`.
-3) Crear conversacion
+3. Crear conversacion
    - `POST /chat/start` -> 201 `{ id: ... }`.
    - Revisar Mongo Express para ver el documento.
-4) Enviar mensaje
+4. Enviar mensaje
    - `POST /chat/message` -> 201 `{ ok: true }`.
    - Verificar `messages` en Mongo.
 
 Comandos utiles:
+
 ```bash
 # Token manual (si necesitas probar por Postman con cookies)
 curl -i -X POST http://127.0.0.1:8000/api/auth/token \
@@ -220,6 +238,7 @@ curl -X POST -H 'Authorization: Bearer ID|SECRET' \
 ---
 
 ## Observabilidad (Logs)
+
 - Flask al validar token:
   - `Validando token id=...`
   - `SHA256 calculado: <hex>`
@@ -234,6 +253,7 @@ curl -X POST -H 'Authorization: Bearer ID|SECRET' \
 ---
 
 ## Solucion de Problemas
+
 - 401 en `/chat/*`:
   - Confirmar `localStorage.aura:pat` con formato `id|secret`.
   - `POST /api/auth/token` funciona (cookies, CORS, SANCTUM_STATEFUL_DOMAINS).
@@ -250,6 +270,7 @@ curl -X POST -H 'Authorization: Bearer ID|SECRET' \
 ---
 
 ## Seguridad y Mantenimiento
+
 - Revocar tokens en logout (`POST /api/auth/token/revoke`) y borrar `aura:pat`.
 - Rotar contrasenas por defecto de Postgres/Mongo antes de produccion.
 - No exponer PAT en logs del cliente o URLs.
@@ -258,6 +279,7 @@ curl -X POST -H 'Authorization: Bearer ID|SECRET' \
 ---
 
 ## Checklist de Capturas (agrega en docs/images/)
+
 - overview.png -> diagrama general (servicios y red).
 - token_issue.png -> respuesta JSON de `/api/auth/token`.
 - localstorage_token.png -> DevTools mostrando `aura:pat`.
@@ -266,4 +288,3 @@ curl -X POST -H 'Authorization: Bearer ID|SECRET' \
 - mongo_conversations.png -> Mongo Express coleccion `conversations`.
 - postgres_personal_access_tokens.png -> Tabla de tokens en PG.
 - network.png -> `docker ps` + `docker network inspect aura_network`.
-

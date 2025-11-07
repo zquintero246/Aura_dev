@@ -13,8 +13,17 @@ services:
       - .:/var/www/html
     ports:
       - "9000:9000"
+    environment:
+      APP_ENV: local
+      DB_CONNECTION: pgsql
+      DB_HOST: aura_postgres
+      DB_PORT: 5432
+      DB_DATABASE: aura_main
+      DB_USERNAME: aura_user
+      DB_PASSWORD: aura_pass
     networks:
       - aura_net
+      - aura_network
     depends_on:
       - mongo
 
@@ -31,6 +40,7 @@ services:
       - app
     networks:
       - aura_net
+      - aura_network
 
   # ================= MongoDB (shared) =================
   mongo:
@@ -52,3 +62,5 @@ services:
 networks:
   aura_net:
     driver: bridge
+  aura_network:
+    external: true

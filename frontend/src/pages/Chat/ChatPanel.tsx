@@ -1,4 +1,4 @@
-// ChatPanel.tsx (wired to GPT)
+﻿// ChatPanel.tsx (wired to GPT)
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { chat as chatApi, ChatMessage } from '../../lib/chat';
 
@@ -22,7 +22,7 @@ type Msg = {
 
 export default function ChatPanel({
   conversationId,
-  userName = 'Tú',
+  userName = 'TÃº',
   userAvatar = '/images/avatar_demo.jpg',
   onTitleChange,
 }: {
@@ -37,7 +37,7 @@ export default function ChatPanel({
     if (!isTempConversation) return conversationId;
     try {
       // try to create with current title
-      const titleToUse = (title?.trim() || 'Nueva conversaci�n');
+      const titleToUse = (title?.trim() || 'Nueva conversación');
       const conv = await createConversation(titleToUse);
       // notify app to replace temp id
       try { window.dispatchEvent(new CustomEvent('aura:conversation:realized', { detail: { tempId: conversationId, newId: conv.id, title: conv.title } })); } catch {}
@@ -76,7 +76,7 @@ export default function ChatPanel({
     setModelOpen(false);
   }, [conversationId]);
 
-  // Immediately create a real conversation in Mongo when user clicks "Nueva conversaci�n"
+  // Immediately create a real conversation in Mongo when user clicks "Nueva conversación"
   useEffect(() => {
     (async () => {
       if (!isTempConversation) return;
@@ -87,8 +87,8 @@ export default function ChatPanel({
         if (tok) console.debug('[ChatPanel] Using PAT for chat_service');
       } catch {}
       try {
-        const titleToUse = (title?.trim() || 'Nueva conversaci�n');
-        console.debug('[ChatPanel] Creating conversation on /chat/start …', { tempId: conversationId, title: titleToUse });
+        const titleToUse = (title?.trim() || 'Nueva conversación');
+        console.debug('[ChatPanel] Creating conversation on /chat/start â€¦', { tempId: conversationId, title: titleToUse });
         const conv = await startChatConversation(titleToUse);
         console.debug('[ChatPanel] Conversation created', conv);
         if (conv?.id) {
@@ -164,9 +164,9 @@ export default function ChatPanel({
         ts: Date.now(),
       },
     ]);
-    // Auto‑título: si aún es placeholder, proponemos uno desde el primer mensaje
+    // Autoâ€‘tÃ­tulo: si aÃºn es placeholder, proponemos uno desde el primer mensaje
     try {
-      const isPlaceholder = !title || /Agregar\s*t[íi�]tulo|Sin\s*t[íi�]tulo/i.test(title);
+      const isPlaceholder = !title || /Agregar\s*t[Ã­iï¿½]tulo|Sin\s*t[Ã­iï¿½]tulo/i.test(title);
       if (isPlaceholder) {
         const plain = text.replace(/\s+/g, ' ').trim();
         if (plain) {
@@ -174,7 +174,7 @@ export default function ChatPanel({
           const words = sentence.split(' ');
           let candidate = sentence;
           if (candidate.length > 60 || words.length > 10) candidate = words.slice(0, 10).join(' ');
-          const auto = candidate.length > 60 ? candidate.slice(0, 57).trim() + '…' : candidate;
+          const auto = candidate.length > 60 ? candidate.slice(0, 57).trim() + 'â€¦' : candidate;
           if (auto) {
             setTitle(auto);
             onTitleChange?.(conversationId, auto);
@@ -222,7 +222,7 @@ export default function ChatPanel({
       if (code === 'rate_limited') {
         msg = 'Servidor saturado, intenta de nuevo.';
       } else if (code === 'no_content') {
-        msg = 'El modelo no respondió. Intenta nuevamente en unos segundos.';
+        msg = 'El modelo no respondiÃ³. Intenta nuevamente en unos segundos.';
       } else if (code === 'network_error' || code === 'timeout') {
         msg = 'Problema de red o tiempo de espera. Reintenta.';
       } else {
@@ -284,7 +284,7 @@ export default function ChatPanel({
                   className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/5 text-sm flex items-center gap-2"
                 >
                   <img src="/images/logo.svg" alt="OpenAI" className="w-5 h-5" />
-                  GPT‑4o mini (OpenAI)
+                  GPTâ€‘4o mini (OpenAI)
                 </button>
                 <button
                   onClick={() => {
@@ -321,7 +321,7 @@ export default function ChatPanel({
             )}
           </div>
 
-          {/* Título */}
+          {/* TÃ­tulo */}
           <div className="flex-1 text-center">
             {editingTitle ? (
               <input
@@ -357,11 +357,11 @@ export default function ChatPanel({
                 } catch {}
               }}
               className="grid place-items-center w-9 h-9 rounded-lg bg-white/5 ring-1 ring-white/10 hover:bg-white/10 transition"
-              title="Configuración del chat"
-              aria-label="Configuración del chat"
+              title="ConfiguraciÃ³n del chat"
+              aria-label="ConfiguraciÃ³n del chat"
             >
               <svg viewBox="0 0 512 512" fill="currentColor" className="w-5 h-5 text-white/80">
-                <g clip-path="url(#clip0_64_6)">
+                <g clipPath="url(#clip0_64_6)">
                   <path d="M496.851 212.213L448.045 200.012C443.978 186.041 438.389 172.558 431.379 159.807L457.269 116.656C459.564 112.831 460.514 108.349 459.969 103.922C459.424 99.4954 457.415 95.3778 454.261 92.224L419.776 57.739C416.622 54.5851 412.504 52.5759 408.078 52.0309C403.651 51.4858 399.169 52.4362 395.344 54.731L352.193 80.621C339.442 73.6106 325.959 68.0217 311.988 63.955L299.787 15.15C298.705 10.8227 296.208 6.98119 292.693 4.23613C289.177 1.49106 284.844 6.27129e-06 280.384 1.23161e-09L231.615 1.23161e-09C227.155 -4.94798e-05 222.822 1.49086 219.307 4.23573C215.791 6.9806 213.294 10.8219 212.212 15.149L200.011 63.954C186.04 68.0207 172.557 73.6096 159.806 80.62L116.655 54.73C112.830 52.4351 108.348 51.4846 103.921 52.0296C99.4944 52.5746 95.3768 54.5839 92.223 57.738L57.738 92.223C54.5842 95.377 52.5751 99.4946 52.0301 103.921C51.4851 108.348 52.4354 112.83 54.73 116.655L80.62 159.806C73.6096 172.557 68.0207 186.04 63.954 200.011L15.148 212.212C10.8211 213.294 6.98001 215.791 4.23534 219.307C1.49066 222.823 -0.000105235 227.155 5.57174e-09 231.615L5.57174e-09 280.384C-4.94755e-05 284.844 1.49086 289.177 4.23573 292.692C6.9806 296.208 10.8219 298.705 15.149 299.787L63.955 311.988C68.0217 325.959 73.6106 339.442 80.621 352.193L54.731 395.344C52.4361 399.169 51.4856 403.651 52.0306 408.078C52.5756 412.505 54.5849 416.622 57.739 419.776L92.224 454.261C95.3779 457.415 99.4955 459.424 103.922 459.969C108.349 460.514 112.831 459.564 116.656 457.269L159.807 431.379C172.558 438.389 186.041 443.978 200.012 448.045L212.213 496.85C213.295 501.177 215.792 505.018 219.308 507.763C222.823 510.508 227.156 511.999 231.616 511.999H280.385C284.845 511.999 289.178 510.508 292.693 507.763C296.209 505.018 298.706 501.177 299.788 496.85L311.989 448.045C325.960 443.978 339.443 438.389 352.194 431.379L395.345 457.269C399.170 459.564 403.652 460.514 408.079 459.969C412.506 459.424 416.623 457.415 419.777 454.261L454.262 419.776C457.416 416.622 459.425 412.504 459.970 408.078C460.515 403.651 459.565 399.169 457.270 395.344L431.380 352.193C438.390 339.442 443.979 325.959 448.046 311.988L496.852 299.787C501.179 298.705 505.020 296.208 507.765 292.692C510.510 289.177 512.001 284.844 512.001 280.384V231.615C512.001 227.155 510.510 222.823 507.765 219.307C505.020 215.792 501.178 213.295 496.851 212.213ZM256 336C211.888 336 176 300.112 176 256C176 211.888 211.888 176 256 176C300.112 176 336 211.888 336 256C336 300.112 300.112 336 256 336Z" />
                 </g>
                 <defs>
@@ -518,7 +518,7 @@ function Bubble({ msg }: { msg: Msg }) {
               onClick={handleCopy}
               className="p-1.5 rounded-md hover:bg-white/5 ring-1 ring-transparent hover:ring-white/10 active:scale-95 transition"
               aria-label="Copiar mensaje"
-              title={copied ? '¡Copiado!' : 'Copiar'}
+              title={copied ? 'Â¡Copiado!' : 'Copiar'}
             >
               <CopyIcon className={`w-4 h-4 ${copied ? 'text-[#8B3DFF]' : 'text-white/60'}`} />
             </button>
@@ -579,6 +579,7 @@ function CopyIcon(props: any) {
     </svg>
   );
 }
+
 
 
 

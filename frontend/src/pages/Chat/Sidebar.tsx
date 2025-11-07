@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { logout as apiLogout } from '../../lib/auth';
 
@@ -86,9 +86,9 @@ const Sidebar: React.FC<SidebarProps> = ({
           md:rounded-none
           rounded-tr-[36px] rounded-br-[36px] md:rounded-tr-none md:rounded-br-none
         `}
-        aria-label="Sidebar de navegación"
+        aria-label="Sidebar de navegaciÃ³n"
       >
-        {/* Header con logo + botón de colapso a la derecha */}
+        {/* Header con logo + botÃ³n de colapso a la derecha */}
         <div className="h-[80px] flex items-center justify-between px-5">
           <div className="flex items-center gap-3">
             <img src="/images/logo_aura.svg" alt="Aura" className="w-[105px] h-auto" />
@@ -105,7 +105,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
         <div className="mx-5 h-px bg-white/10" />
 
-        {/* Navegación */}
+        {/* NavegaciÃ³n */}
         <nav className="px-2 py-4 text-sm">
           <div className="space-y-2 px-2">
             <SidebarItem
@@ -130,8 +130,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                       y2="0.41632"
                       gradientUnits="userSpaceOnUse"
                     >
-                      <stop stop-color="#CA5CF5" />
-                      <stop offset="1" stop-color="#7405B4" />
+                      <stop stopColor="#CA5CF5" />
+                      <stop offset="1" stopColor="#7405B4" />
                     </linearGradient>
                   </defs>
                 </svg>
@@ -192,15 +192,15 @@ const Sidebar: React.FC<SidebarProps> = ({
                 role="menu"
               >
                 <DropdownItem icon={<UserIcon />} label="Perfil" onClick={handleProfile} />
-                <DropdownItem icon={<GearIcon />} label="Configuraci�n" onClick={handleSettings} />
+                <DropdownItem icon={<GearIcon />} label="Configuraciï¿½n" onClick={handleSettings} />
                 <div className="h-px bg-white/10 my-1" />
                 <DropdownItem icon={<HelpIcon />} label="Centro de ayuda" onClick={handleHelp} />
                 <DropdownItem
                   icon={<TelemetryIcon />}
-                  label="Telemetr�a"
+                  label="Telemetrï¿½a"
                   onClick={handleTelemetry}
                 />
-                <DropdownItem icon={<LogoutIcon />} label="Cerrar sesi�n" onClick={handleLogout} />
+                <DropdownItem icon={<LogoutIcon />} label="Cerrar sesiï¿½n" onClick={handleLogout} />
               </div>
             </div>
           </div>
@@ -315,7 +315,7 @@ function DropdownItem({
   );
 }
 
-/* ================= Íconos (SVG inline) ================= */
+/* ================= Ãconos (SVG inline) ================= */
 function MenuIcon(props: any) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" {...props}>
@@ -331,7 +331,7 @@ function ChevronLeftIcon(props: any) {
   );
 }
 
-/* Íconos grandes para items principales */
+/* Ãconos grandes para items principales */
 function PlusCircleLgIcon() {
   return (
     <svg viewBox="0 0 24 24" className="w-6 h-6 text-[#8B3DFF]" fill="currentColor">
@@ -354,7 +354,7 @@ function BookmarkLgIcon() {
   );
 }
 
-/* Íconos auxiliares */
+/* Ãconos auxiliares */
 function DocIcon(props: any) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" {...props}>

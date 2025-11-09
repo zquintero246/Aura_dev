@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+  weather_api:
+    build: .
+    container_name: weather_api
+    ports:
+      - "5050:5050"
+    environment:
+      - FLASK_ENV=production
+      - APP_DB_DRIVER=postgres
+      - WEATHER_API_PROVIDER=${WEATHER_API_PROVIDER:-open-meteo}
+      - DB_HOST=${DB_HOST:-aura_postgres}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_DATABASE=${DB_DATABASE:-aura_main}
+      - DB_USERNAME=${DB_USERNAME:-aura_user}
+      - DB_PASSWORD=${DB_PASSWORD:-aura_pass}
+      - OPENWEATHERMAP_KEY=${OPENWEATHERMAP_KEY}
+    restart: unless-stopped
+    networks:
+      - aura_network
+
+networks:
+  aura_network:
+    external: true

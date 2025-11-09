@@ -119,10 +119,19 @@ export default function HomeRegistration({ userId, onDone }: Props) {
     e.preventDefault();
     if (!canSubmit) return;
     setSubmitting(true);
-    try { if (coords) localStorage.setItem('home:coords', JSON.stringify(coords)); } catch {}
+    try {
+      if (coords) {
+        const keyCoords = `aura:home:coords:${userId}`;
+        const keyReg = `aura:home:registered:${userId}`;
+        localStorage.setItem(keyCoords, JSON.stringify(coords));
+        localStorage.setItem(keyReg, '1');
+        // Limpia claves antiguas sin scope de usuario (por compatibilidad)
+        localStorage.removeItem('home:coords');
+        localStorage.removeItem('home:registered');
+      }
+    } catch {}
     if (coords) {
       await saveLocation({ country: countryName, city, latitude: coords.lat, longitude: coords.lon });
-      try { localStorage.setItem('home:registered', '1'); } catch {}
     }
     setSubmitting(false);
     onDone();

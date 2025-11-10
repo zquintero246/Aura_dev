@@ -20,24 +20,10 @@ class ChatController extends Controller
             'conversationId' => ['nullable', 'string'],
         ]);
 
-        $openaiApiKey = env('OPENAI_API_KEY');
-        $geminiApiKey = env('GEMINI_API_KEY');
-        $model = $validated['model'] ?? env('OPENROUTER_DEFAULT_MODEL') ?? env('OPENAI_MODEL', 'gpt-4o-mini');
+        $model = $validated['model'] ?? env('OPENROUTER_DEFAULT_MODEL', 'google/gemini-2.0-flash-exp:free');
         $temperature = $validated['temperature'] ?? 0.7;
 
-        // Robust provider detection
-        $m = strtolower(trim($model));
-        if (str_starts_with($m, 'gemini')) {
-            $provider = 'gemini';
-        } elseif (str_contains($m, 'google/gemini') || str_contains($m, 'deepseek') || str_contains($m, '/')) {
-            $provider = 'openrouter';
-        } elseif (str_starts_with($m, 'gpt') || str_starts_with($m, 'o3') || str_contains($m, 'openai')) {
-            $provider = 'openai';
-        } else {
-            $provider = 'openai';
-        }
-
-        \Log::info('Chat provider selection', ['model' => $model, 'provider' => $provider]);
+        \Log::info('Chat provider selection', ['model' => $model, 'provider' => 'openrouter']);
 
         // Extract last user message (for logging)
         $lastUserText = '';
@@ -67,455 +53,90 @@ class ChatController extends Controller
         };
 
         try {
-            if ($provider === 'openai') {
-                // ---------- OpenAI ----------
-                if (! $openaiApiKey) {
-                    return response()->json(['message' => 'OPENAI_API_KEY not configured', 'provider' => 'openai', 'model' => $model], 500);
+            $openrouterKey = env('OPENROUTER_API_KEY');
+            if (! $openrouterKey) {
+                return response()->json(['message' => 'OPENROUTER_API_KEY not configured', 'provider' => 'openrouter', 'model' => $model], 500);
+            }
+
+            $messages = $validated['messages'];
+            $hasSystem = false;
+            foreach ($messages as $msg) {
+                if (($msg['role'] ?? '') === 'system') {
+                    $hasSystem = true;
+                    break;
                 }
-
-                $client = Http::withHeaders([
-                    'Authorization' => 'Bearer ' . $openaiApiKey,
-                    'Content-Type' => 'application/json',
-                ])->timeout(30)->connectTimeout(10);
-
-                if (env('AI_VERIFY_SSL', 'true') !== 'true') {
-                    $client = $client->withOptions(['verify' => false]);
-                }
-
-                $resp = $client->asJson()->post('https://api.openai.com/v1/chat/completions', [
-                    'model' => $model,
-                    'messages' => $validated['messages'],
-                    'temperature' => $temperature,
-                ]);
-
-                if ($resp->failed()) {
-                    \Log::warning('OpenAI API failed', [
-                        'status' => $resp->status(),
-                        'body' => $resp->body(),
-                    ]);
-                    $retryAfter = (int)($resp->header('Retry-After') ?? 0);
-                    // Fallback: if OpenAI quota error, try Gemini direct if available
-                    if ($resp->status() === 429 && $geminiApiKey) {
-                        try {
-                            $contents = [];
-                            foreach ($validated['messages'] as $m) {
-                                $role = $m['role'] ?? 'user';
-                                $gemRole = $role === 'assistant' ? 'model' : 'user';
-                                $contents[] = [
-                                    'role' => $gemRole,
-                                    'parts' => [['text' => (string) ($m['content'] ?? '')]],
-                                ];
-                            }
-                            $fallbackGeminiModel = 'gemini-1.5-flash';
-                            $endpointGem = "https://generativelanguage.googleapis.com/v1beta/models/{$fallbackGeminiModel}:generateContent?key={$geminiApiKey}";
-                            $gclient = Http::withHeaders(['Content-Type' => 'application/json'])->timeout(45)->connectTimeout(10);
-                            if (env('AI_VERIFY_SSL', 'true') !== 'true') {
-                                $gclient = $gclient->withOptions(['verify' => false]);
-                            }
-                            $gresp = $gclient->asJson()->post($endpointGem, [
-                                'model' => "models/{$fallbackGeminiModel}",
-                                'contents' => $contents,
-                                'generationConfig' => ['temperature' => (float) $temperature],
-                            ]);
-                            if (! $gresp->failed()) {
-                                $gdata = $gresp->json();
-                                $gcontent = $gdata['candidates'][0]['content']['parts'][0]['text'] ?? '';
-                                if (is_string($gcontent) && $gcontent !== '') {
-                                    $logExchange($gcontent);
-                                    return response()->json(['content' => $gcontent, 'raw' => $gdata]);
-                                }
-                            }
-                        } catch (\Throwable $f) { /* ignore and fall through */
-                        }
-                    }
-                    return response()->json([
-                        'message' => 'OpenAI API error',
-                        'code' => in_array($resp->status(), [429, 503, 504]) ? 'rate_limited' : 'upstream_error',
-                        'retryable' => in_array($resp->status(), [408, 409, 425, 429, 500, 502, 503, 504]),
-                        'retryAfter' => $retryAfter,
-                        'error' => $resp->json(),
-                        'provider' => 'openai',
-                        'model' => $model,
-                    ], $resp->status());
-                }
-
-                $data = $resp->json();
-                $content = $data['choices'][0]['message']['content'] ?? '';
-
-                if (!is_string($content) || $content === '') {
-                    return response()->json([
-                        'message' => 'OpenAI returned no content',
-                        'code' => 'no_content',
-                        'retryable' => true,
-                        'provider' => 'openai',
-                        'model' => $model,
-                    ], 502);
-                }
-
-                $logExchange(is_string($content) ? $content : '');
-                $logExchange(is_string($content) ? $content : '');
-                return response()->json([
-                    'content' => $content,
-                    'raw' => $data,
+            }
+            if (! $hasSystem) {
+                array_unshift($messages, [
+                    'role' => 'system',
+                    'content' => 'Eres un asistente útil y preciso.',
                 ]);
             }
 
-            // ---------- OpenRouter (DeepSeek via OpenRouter) ----------
-            if ($provider === 'openrouter') {
-                $openrouterKey = env('OPENROUTER_API_KEY');
-                if (! $openrouterKey) {
-                    return response()->json(['message' => 'OPENROUTER_API_KEY not configured', 'provider' => 'openrouter', 'model' => $model], 500);
-                }
-
-                // Use the requested OpenRouter model (e.g., deepseek/* or google/gemini-*)
-                $orModel = $model;
-
-                // Ensure system prompt exists
-                $messages = $validated['messages'];
-                $hasSystem = false;
-                foreach ($messages as $msg) {
-                    if (($msg['role'] ?? '') === 'system') {
-                        $hasSystem = true;
-                        break;
-                    }
-                }
-                if (! $hasSystem) {
-                    array_unshift($messages, [
-                        'role' => 'system',
-                        'content' => 'Eres un asistente útil y preciso.',
-                    ]);
-                }
-
-                $client = Http::withHeaders([
-                    'Authorization' => 'Bearer ' . $openrouterKey,
-                    'Content-Type' => 'application/json',
-                    'HTTP-Referer' => env('APP_URL', 'https://aura-dev.local'),
-                    'X-Title' => env('APP_NAME', 'Aura'),
-                ])->timeout(45)->connectTimeout(10);
-                if (env('AI_VERIFY_SSL', 'true') !== 'true') {
-                    $client = $client->withOptions(['verify' => false]);
-                }
-
-                $endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-
-                // Retries with exponential backoff and header-aware delays
-                $attempt = 0;
-                $maxAttempts = 3;
-                $data = null;
-                $content = '';
-                do {
-                    $resp = $client->asJson()->post($endpoint, [
-                        'model' => $orModel,
-                        'messages' => $messages,
-                    ]);
-                    if ($resp->failed()) {
-                        \Log::warning('OpenRouter API failed', [
-                            'status' => $resp->status(),
-                            'body' => $resp->body(),
-                        ]);
-                    } else {
-                        $data = $resp->json();
-                        $content = $data['choices'][0]['message']['content'] ?? '';
-                        if (is_string($content) && $content !== '') break;
-                    }
-                    $attempt++;
-                    $retryAfterHeader = isset($resp) ? (int)($resp->header('Retry-After') ?? 0) : 0;
-                    $shouldRetry = isset($resp) && (in_array($resp->status(), [408, 409, 425, 429, 500, 502, 503, 504]) || $content === '');
-                    $sleepMs = $retryAfterHeader > 0 ? ($retryAfterHeader * 1000) : (int)(pow(2, $attempt) * 250); // ~500ms, 1000ms, 2000ms
-                    if ($shouldRetry && $attempt < $maxAttempts) {
-                        usleep($sleepMs * 1000);
-                    } else {
-                        break;
-                    }
-                } while ($attempt < $maxAttempts);
-
-                if (!is_string($content) || $content === '') {
-                    $status = isset($resp) ? $resp->status() : 502;
-                    $retryAfter = isset($resp) ? (int)($resp->header('Retry-After') ?? 0) : 0;
-
-                    // Fallback 1: if OpenRouter on a Gemini model is rate-limited/timeout, try direct Gemini
-                    $isOrGemini = str_starts_with($orModel, 'google/gemini');
-                    if ($isOrGemini && ($status === 429 || in_array($status, [408, 500, 502, 503, 504]))) {
-                        $geminiApiKey = env('GEMINI_API_KEY');
-                        if ($geminiApiKey) {
-                            // Map OpenRouter model to a safe direct Gemini model
-                            $fallbackGeminiModel = 'gemini-1.5-flash';
-
-                            // Convert messages to Gemini format
-                            $contents = [];
-                            foreach ($validated['messages'] as $m) {
-                                $role = $m['role'] ?? 'user';
-                                $gemRole = $role === 'assistant' ? 'model' : 'user';
-                                $contents[] = [
-                                    'role' => $gemRole,
-                                    'parts' => [['text' => (string) ($m['content'] ?? '')]],
-                                ];
-                            }
-
-                            $endpointGem = "https://generativelanguage.googleapis.com/v1beta/models/{$fallbackGeminiModel}:generateContent?key={$geminiApiKey}";
-                            $gclient = Http::withHeaders(['Content-Type' => 'application/json'])->timeout(45)->connectTimeout(10);
-                            if (env('AI_VERIFY_SSL', 'true') !== 'true') {
-                                $gclient = $gclient->withOptions(['verify' => false]);
-                            }
-                            $gresp = $gclient->asJson()->post($endpointGem, [
-                                'model' => "models/{$fallbackGeminiModel}",
-                                'contents' => $contents,
-                                'generationConfig' => [
-                                    'temperature' => (float) $temperature,
-                                ],
-                            ]);
-                            if (! $gresp->failed()) {
-                                $gdata = $gresp->json();
-                                $gcontent = $gdata['candidates'][0]['content']['parts'][0]['text'] ?? '';
-                                    if (is_string($gcontent) && $gcontent !== '') {
-                                        $logExchange($gcontent);
-                                        return response()->json([
-                                            'content' => $gcontent,
-                                            'raw' => $gdata,
-                                        ]);
-                                    }
-                            }
-                        }
-                    }
-
-                    // Fallback 2: if OpenRouter returns daily free-model limit 429 on any model, try Gemini direct
-                    if ($status === 429 && isset($resp) && str_contains(strtolower((string) $resp->body()), 'free-models-per-day')) {
-                        $geminiApiKey = env('GEMINI_API_KEY');
-                        if ($geminiApiKey) {
-                            try {
-                                $contents = [];
-                                foreach ($validated['messages'] as $m) {
-                                    $role = $m['role'] ?? 'user';
-                                    $gemRole = $role === 'assistant' ? 'model' : 'user';
-                                    $contents[] = [
-                                        'role' => $gemRole,
-                                        'parts' => [['text' => (string) ($m['content'] ?? '')]],
-                                    ];
-                                }
-                                $fallbackGeminiModel = 'gemini-1.5-flash';
-                                $endpointGem = "https://generativelanguage.googleapis.com/v1beta/models/{$fallbackGeminiModel}:generateContent?key={$geminiApiKey}";
-                                $gclient = Http::withHeaders(['Content-Type' => 'application/json'])->timeout(45)->connectTimeout(10);
-                                if (env('AI_VERIFY_SSL', 'true') !== 'true') {
-                                    $gclient = $gclient->withOptions(['verify' => false]);
-                                }
-                                $gresp = $gclient->asJson()->post($endpointGem, [
-                                    'model' => "models/{$fallbackGeminiModel}",
-                                    'contents' => $contents,
-                                    'generationConfig' => ['temperature' => (float) $temperature],
-                                ]);
-                                if (! $gresp->failed()) {
-                                    $gdata = $gresp->json();
-                                    $gcontent = $gdata['candidates'][0]['content']['parts'][0]['text'] ?? '';
-                                    if (is_string($gcontent) && $gcontent !== '') {
-                                        return response()->json(['content' => $gcontent, 'raw' => $gdata]);
-                                    }
-                                }
-                            } catch (\Throwable $f) { /* ignore */
-                            }
-                        }
-                    }
-
-                    return response()->json([
-                        'message' => $status === 429 ? 'Rate limited by OpenRouter' : 'OpenRouter returned no content',
-                        'code' => $status === 429 ? 'rate_limited' : 'no_content',
-                        'retryable' => true,
-                        'retryAfter' => $retryAfter,
-                        'raw' => $data,
-                        'provider' => 'openrouter',
-                        'model' => $orModel,
-                    ], 502);
-                }
-
-                return response()->json([
-                    'content' => $content,
-                    'raw' => $data,
-                ]);
-            }
-
-            // ---------- Gemini ----------
-
-            // If provider not openrouter, proceed to Gemini
-
-            // ---------- Gemini ----------
-            if (! $geminiApiKey) {
-                return response()->json(['message' => 'GEMINI_API_KEY not configured', 'provider' => 'gemini', 'model' => $model], 500);
-            }
-
-            // Convert OpenAI messages to Gemini format
-            $contents = [];
-            foreach ($validated['messages'] as $m) {
-                $role = $m['role'] ?? 'user';
-                $gemRole = $role === 'assistant' ? 'model' : 'user';
-                $contents[] = [
-                    'role' => $gemRole,
-                    'parts' => [['text' => (string) ($m['content'] ?? '')]],
-                ];
-            }
-
-            // Dynamic model name
-            $geminiModel = str_contains($model, 'gemini') ? $model : 'gemini-1.5-flash';
-
-            $endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{$geminiModel}:generateContent?key={$geminiApiKey}";
-
-            $client = Http::withHeaders(['Content-Type' => 'application/json'])->timeout(45)->connectTimeout(10);
+            $client = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $openrouterKey,
+                'Content-Type' => 'application/json',
+                'HTTP-Referer' => env('APP_URL', 'https://aura-dev.local'),
+                'X-Title' => env('APP_NAME', 'Aura'),
+            ])->timeout(45)->connectTimeout(10);
             if (env('AI_VERIFY_SSL', 'true') !== 'true') {
                 $client = $client->withOptions(['verify' => false]);
             }
 
-            $resp = $client->asJson()->post($endpoint, [
-                'model' => "models/{$geminiModel}",
-                'contents' => $contents,
-                'generationConfig' => [
-                    'temperature' => (float) $temperature,
-                ],
-            ]);
+            $endpoint = 'https://openrouter.ai/api/v1/chat/completions';
 
-            if ($resp->failed()) {
-                \Log::warning('Gemini API failed', [
-                    'status' => $resp->status(),
-                    'body' => $resp->body(),
-                ]);
-                $retryAfter = (int)($resp->header('Retry-After') ?? 0);
-                // Fallback sequence: OpenAI -> OpenRouter default
-                if ($openaiApiKey) {
-                    try {
-                        $oclient = Http::withHeaders([
-                            'Authorization' => 'Bearer ' . $openaiApiKey,
-                            'Content-Type' => 'application/json',
-                        ])->timeout(30)->connectTimeout(10);
-                        if (env('AI_VERIFY_SSL', 'true') !== 'true') {
-                            $oclient = $oclient->withOptions(['verify' => false]);
-                        }
-                        $oResp = $oclient->asJson()->post('https://api.openai.com/v1/chat/completions', [
-                            'model' => env('OPENAI_MODEL', 'gpt-4o-mini'),
-                            'messages' => $validated['messages'],
-                            'temperature' => $temperature,
-                        ]);
-                        if (! $oResp->failed()) {
-                            $oData = $oResp->json();
-                            $oContent = $oData['choices'][0]['message']['content'] ?? '';
-                            if (is_string($oContent) && $oContent !== '') {
-                                $logExchange($oContent);
-                                return response()->json(['content' => $oContent, 'raw' => $oData]);
-                            }
-                        }
-                    } catch (\Throwable $f) { /* ignore */
-                    }
-                }
-
-                $openrouterKey = env('OPENROUTER_API_KEY');
-                $orDefault = env('OPENROUTER_DEFAULT_MODEL');
-                if ($openrouterKey && $orDefault) {
-                    try {
-                        $orClient = Http::withHeaders([
-                            'Authorization' => 'Bearer ' . $openrouterKey,
-                            'Content-Type' => 'application/json',
-                            'HTTP-Referer' => env('APP_URL', 'https://aura-dev.local'),
-                            'X-Title' => env('APP_NAME', 'Aura'),
-                        ])->timeout(45)->connectTimeout(10);
-                        if (env('AI_VERIFY_SSL', 'true') !== 'true') {
-                            $orClient = $orClient->withOptions(['verify' => false]);
-                        }
-                        $orResp = $orClient->asJson()->post('https://openrouter.ai/api/v1/chat/completions', [
-                            'model' => $orDefault,
-                            'messages' => $validated['messages'],
-                        ]);
-                        if (! $orResp->failed()) {
-                            $orData = $orResp->json();
-                            $orContent = $orData['choices'][0]['message']['content'] ?? '';
-                            if (is_string($orContent) && $orContent !== '') {
-                                $logExchange($orContent);
-                                return response()->json(['content' => $orContent, 'raw' => $orData]);
-                            }
-                        }
-                    } catch (\Throwable $f) { /* ignore */
-                    }
-                }
-
-                return response()->json([
-                    'message' => 'Gemini API error',
-                    'code' => in_array($resp->status(), [429, 503, 504]) ? 'rate_limited' : 'upstream_error',
-                    'retryable' => in_array($resp->status(), [408, 409, 425, 429, 500, 502, 503, 504]),
-                    'retryAfter' => $retryAfter,
-                    'error' => $resp->json(),
-                    'provider' => 'gemini',
+            $attempt = 0;
+            $maxAttempts = 3;
+            $data = null;
+            $content = '';
+            $resp = null;
+            do {
+                $resp = $client->asJson()->post($endpoint, [
                     'model' => $model,
-                ], $resp->status());
-            }
-
-            $data = $resp->json();
-            $content = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+                    'messages' => $messages,
+                ]);
+                if ($resp->failed()) {
+                    \Log::warning('OpenRouter API failed', [
+                        'status' => $resp->status(),
+                        'body' => $resp->body(),
+                    ]);
+                } else {
+                    $data = $resp->json();
+                    $content = $data['choices'][0]['message']['content'] ?? '';
+                    if (is_string($content) && $content !== '') {
+                        break;
+                    }
+                }
+                $attempt++;
+                $retryAfterHeader = isset($resp) ? (int)($resp->header('Retry-After') ?? 0) : 0;
+                $shouldRetry = isset($resp) && (in_array($resp->status(), [408, 409, 425, 429, 500, 502, 503, 504]) || $content === '');
+                $sleepMs = $retryAfterHeader > 0 ? ($retryAfterHeader * 1000) : (int)(pow(2, $attempt) * 250);
+                if ($shouldRetry && $attempt < $maxAttempts) {
+                    usleep($sleepMs * 1000);
+                } else {
+                    break;
+                }
+            } while ($attempt < $maxAttempts);
 
             if (!is_string($content) || $content === '') {
-                // Safety net: OpenAI then OpenRouter default
-                if ($openaiApiKey) {
-                    try {
-                        $oclient = Http::withHeaders([
-                            'Authorization' => 'Bearer ' . $openaiApiKey,
-                            'Content-Type' => 'application/json',
-                        ])->timeout(30)->connectTimeout(10);
-                        if (env('AI_VERIFY_SSL', 'true') !== 'true') {
-                            $oclient = $oclient->withOptions(['verify' => false]);
-                        }
-                        $oResp = $oclient->asJson()->post('https://api.openai.com/v1/chat/completions', [
-                            'model' => env('OPENAI_MODEL', 'gpt-4o-mini'),
-                            'messages' => $validated['messages'],
-                            'temperature' => $temperature,
-                        ]);
-                        if (! $oResp->failed()) {
-                            $oData = $oResp->json();
-                            $oContent = $oData['choices'][0]['message']['content'] ?? '';
-                            if (is_string($oContent) && $oContent !== '') {
-                                return response()->json(['content' => $oContent, 'raw' => $oData]);
-                            }
-                        }
-                    } catch (\Throwable $f) { /* ignore */
-                    }
-                }
-                $openrouterKey = env('OPENROUTER_API_KEY');
-                $orDefault = env('OPENROUTER_DEFAULT_MODEL');
-                if ($openrouterKey && $orDefault) {
-                    try {
-                        $orClient = Http::withHeaders([
-                            'Authorization' => 'Bearer ' . $openrouterKey,
-                            'Content-Type' => 'application/json',
-                            'HTTP-Referer' => env('APP_URL', 'https://aura-dev.local'),
-                            'X-Title' => env('APP_NAME', 'Aura'),
-                        ])->timeout(45)->connectTimeout(10);
-                        if (env('AI_VERIFY_SSL', 'true') !== 'true') {
-                            $orClient = $orClient->withOptions(['verify' => false]);
-                        }
-                        $orResp = $orClient->asJson()->post('https://openrouter.ai/api/v1/chat/completions', [
-                            'model' => $orDefault,
-                            'messages' => $validated['messages'],
-                        ]);
-                        if (! $orResp->failed()) {
-                            $orData = $orResp->json();
-                            $orContent = $orData['choices'][0]['message']['content'] ?? '';
-                            if (is_string($orContent) && $orContent !== '') {
-                                return response()->json(['content' => $orContent, 'raw' => $orData]);
-                            }
-                        }
-                    } catch (\Throwable $f) { /* ignore */
-                    }
-                }
+                $status = isset($resp) ? $resp->status() : 502;
+                $retryAfter = isset($resp) ? (int)($resp->header('Retry-After') ?? 0) : 0;
+                return response()->json([
+                    'message' => 'OpenRouter returned no content',
+                    'code' => 'no_content',
+                    'retryable' => true,
+                    'provider' => 'openrouter',
+                    'model' => $model,
+                    'retryAfter' => $retryAfter,
+                    'raw' => isset($resp) ? $resp->json() : null,
+                ], $status);
             }
 
-            $logExchange(is_string($content) ? $content : '');
+            $logExchange($content);
             return response()->json([
                 'content' => $content,
                 'raw' => $data,
             ]);
-        } catch (\Illuminate\Http\Client\ConnectionException $e) {
-            \Log::error('Chat request connection exception', ['error' => $e->getMessage()]);
-            return response()->json([
-                'message' => 'Network connection error',
-                'code' => 'network_error',
-                'retryable' => true,
-                'error' => $e->getMessage(),
-                'provider' => $provider ?? null,
-                'model' => $model,
-            ], 502);
         } catch (\Throwable $e) {
             \Log::error('Chat request exception', ['error' => $e->getMessage()]);
             $isTimeout = stripos($e->getMessage(), 'timeout') !== false;
@@ -524,7 +145,7 @@ class ChatController extends Controller
                 'code' => $isTimeout ? 'timeout' : 'unexpected',
                 'retryable' => $isTimeout,
                 'error' => $e->getMessage(),
-                'provider' => $provider ?? null,
+                'provider' => 'openrouter',
                 'model' => $model,
             ], $isTimeout ? 504 : 500);
         }

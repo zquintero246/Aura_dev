@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pymongo import MongoClient
+from pymongo import MongoClient, ReturnDocument
 from bson import ObjectId
 import re
 import unicodedata
@@ -59,6 +59,28 @@ def list_conversations(user_id: str) -> List[Dict[str, Any]]:
             "last_message_at": c.get("last_message_at").isoformat() + "Z" if c.get("last_message_at") else None,
         })
     return items
+
+
+def update_conversation_title(user_id: str, conversation_id: str, title: str) -> Dict[str, Any]:
+    cleaned = (title or "").strip()
+    if not cleaned:
+        raise ValueError("Title cannot be empty")
+    cid = _oid(conversation_id)
+    now = datetime.utcnow()
+    updated = conversations.find_one_and_update(
+        {"_id": cid, "user_id": str(user_id)},
+        {"$set": {"title": cleaned, "updated_at": now}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not updated:
+        raise PermissionError("Conversation not found or not owned by user")
+    return {
+        "id": str(updated.get("_id")),
+        "title": updated.get("title"),
+        "created_at": updated.get("created_at").isoformat() + "Z" if updated.get("created_at") else None,
+        "updated_at": updated.get("updated_at").isoformat() + "Z" if updated.get("updated_at") else None,
+        "last_message_at": updated.get("last_message_at").isoformat() + "Z" if updated.get("last_message_at") else None,
+    }
 
 
 def insert_message(conversation_id: str, user_id: str, role: str, content: str) -> Dict[str, Any]:

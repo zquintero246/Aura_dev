@@ -5,8 +5,29 @@ import { chat as chatApi, ChatMessage } from '../../lib/chat';
 import { ensureChatToken } from '../../lib/auth';
 import { startConversation as startChatConversation } from '../../lib/chatApi';
 import { listMessages as loadChatHistory, ChatMessageItem } from '../../lib/chatApi';
+import { updateConversationTitle as persistConversationTitle } from '../../lib/conversations';
 import MarkdownLite from '../../components/MarkdownLite';
 // (inline svg icons, no external deps)
+
+const escapeRegExp = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const renderHighlightedText = (text: string, query: string) => {
+  if (!query) return text;
+  const searchLower = query.trim().toLowerCase();
+  if (!searchLower) return text;
+  const pattern = new RegExp(`(${escapeRegExp(query)})`, 'gi');
+  return text.split(pattern).map((segment, index) => {
+    if (segment.toLowerCase() === searchLower) {
+      return (
+        <span key={index} className="text-[#8B3DFF]">
+          {segment}
+        </span>
+      );
+    }
+    return <span key={index}>{segment}</span>;
+  });
+};
 
 type Msg = {
   id: string;
@@ -22,25 +43,38 @@ type Msg = {
 
 export default function ChatPanel({
   conversationId,
-  userName = 'TÃº',
+  conversationTitle,
+  userName = 'Tú',
   userAvatar = '/images/avatar_demo.jpg',
   onTitleChange,
+  searchQuery,
+  onClearSearch,
 }: {
   conversationId: string;
+  conversationTitle?: string;
   userName?: string;
   userAvatar?: string;
   onTitleChange?: (id: string, title: string) => void;
+  searchQuery?: string;
+  onClearSearch?: () => void;
 }) {
-  const isTempConversation = typeof conversationId === 'string' && conversationId.startsWith('tmp-');
+  const isTempConversation =
+    typeof conversationId === 'string' && conversationId.startsWith('tmp-');
 
   const ensureConversationId = async (): Promise<string> => {
     if (!isTempConversation) return conversationId;
     try {
       // try to create with current title
-      const titleToUse = (title?.trim() || 'Nueva conversación');
+      const titleToUse = title?.trim() || 'Nueva conversación';
       const conv = await createConversation(titleToUse);
       // notify app to replace temp id
-      try { window.dispatchEvent(new CustomEvent('aura:conversation:realized', { detail: { tempId: conversationId, newId: conv.id, title: conv.title } })); } catch {}
+      try {
+        window.dispatchEvent(
+          new CustomEvent('aura:conversation:realized', {
+            detail: { tempId: conversationId, newId: conv.id, title: conv.title },
+          })
+        );
+      } catch {}
       return conv.id;
     } catch {
       return conversationId; // fallback, still send without persistence
@@ -59,6 +93,8 @@ export default function ChatPanel({
   const createdRef = useRef(false);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     const el = scrollerRef.current;
@@ -70,11 +106,43 @@ export default function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, conversationId]);
 
+  useEffect(() => {
+    if (!searchQuery) {
+      setHighlightedMessageId(null);
+    }
+  }, [searchQuery]);
+
+  const scrollToMessage = (id: string) => {
+    const el = messageRefs.current[id];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedMessageId(id);
+      window.setTimeout(() => setHighlightedMessageId(null), 2800);
+    }
+    onClearSearch?.();
+  };
+
+  const filteredMessages = useMemo(() => {
+    const query = (searchQuery || '').trim().toLowerCase();
+    if (!query) return [];
+    return messages
+      .filter((m) => !!m.text)
+      .map((m) => ({ ...m, text: m.text || '' }))
+      .filter((m) => m.text.toLowerCase().includes(query))
+      .slice(0, 8);
+  }, [messages, searchQuery]);
+
   // Reset model lock when switching conversation
   useEffect(() => {
     setModelLocked(false);
     setModelOpen(false);
   }, [conversationId]);
+
+  useEffect(() => {
+    const resolved = (conversationTitle && conversationTitle.trim()) || 'Agregar titulo';
+    setTitle(resolved);
+    setEditingTitle(false);
+  }, [conversationId, conversationTitle]);
 
   // Immediately create a real conversation in Mongo when user clicks "Nueva conversación"
   useEffect(() => {
@@ -87,16 +155,24 @@ export default function ChatPanel({
         if (tok) console.debug('[ChatPanel] Using PAT for chat_service');
       } catch {}
       try {
-        const titleToUse = (title?.trim() || 'Nueva conversación');
-        console.debug('[ChatPanel] Creating conversation on /chat/start â€¦', { tempId: conversationId, title: titleToUse });
+        const titleToUse = title?.trim() || 'Nueva conversación';
+        console.debug('[ChatPanel] Creating conversation on /chat/start â€¦', {
+          tempId: conversationId,
+          title: titleToUse,
+        });
         const conv = await startChatConversation(titleToUse);
         console.debug('[ChatPanel] Conversation created', conv);
         if (conv?.id) {
           try {
             window.dispatchEvent(
               new CustomEvent('aura:conversation:realized', {
-                detail: { tempId: conversationId, newId: conv.id, title: conv.title || titleToUse, userId: (conv as any)?.user_id },
-              }),
+                detail: {
+                  tempId: conversationId,
+                  newId: conv.id,
+                  title: conv.title || titleToUse,
+                  userId: (conv as any)?.user_id,
+                },
+              })
             );
           } catch {}
         }
@@ -132,14 +208,32 @@ export default function ChatPanel({
         if (!cancelled) setMessages([]);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, userName, userAvatar]);
 
   const normalizedTitle = useMemo(() => (title.trim() ? title.trim() : 'Sin titulo'), [title]);
-  const commitTitle = () => {
+  const commitTitle = async () => {
     setEditingTitle(false);
-    onTitleChange?.(conversationId, normalizedTitle);
+    const finalTitle = normalizedTitle;
+    if (isTempConversation || !conversationId) {
+      setTitle(finalTitle);
+      onTitleChange?.(conversationId, finalTitle);
+      return;
+    }
+    try {
+      await persistConversationTitle(conversationId, finalTitle);
+      setTitle(finalTitle);
+      onTitleChange?.(conversationId, finalTitle);
+    } catch (err) {
+      console.error('Failed to update conversation title', err);
+      try {
+        window.alert('No se pudo actualizar el título. Intenta nuevamente.');
+      } catch {}
+      setTitle(conversationTitle || finalTitle);
+    }
   };
 
   const handleSend = async () => {
@@ -222,7 +316,7 @@ export default function ChatPanel({
       if (code === 'rate_limited') {
         msg = 'Servidor saturado, intenta de nuevo.';
       } else if (code === 'no_content') {
-        msg = 'El modelo no respondiÃ³. Intenta nuevamente en unos segundos.';
+        msg = 'El modelo no respondió. Intenta nuevamente en unos segundos.';
       } else if (code === 'network_error' || code === 'timeout') {
         msg = 'Problema de red o tiempo de espera. Reintenta.';
       } else {
@@ -244,10 +338,11 @@ export default function ChatPanel({
   };
 
   return (
-    <div className="h-full min-h-0 flex flex-col mx-auto max-w-[1400px]">
+    <div className="h-full min-h-0 flex flex-col mx-auto max-w-[1400px] relative">
       {/* header */}
       <div className="sticky top-0 z-10 pt-3 pb-3 bg-[#070a14]/80 backdrop-blur rounded-t-[18px] border-b border-white/10">
-        <div className="flex items-center justify-between gap-3">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-b from-transparent to-[#070a14]/90"></div>
+        <div className="relative flex items-center justify-between gap-3">
           {/* Modelo (solo logo) */}
           <div className="relative">
             <button
@@ -278,23 +373,13 @@ export default function ChatPanel({
               <div className="absolute mt-2 left-0 w-64 rounded-xl bg-[#0f1320] border border-white/10 p-1 shadow-lg z-10">
                 <button
                   onClick={() => {
-                    setModel('gpt-4o-mini'); // OpenAI direct
+                    setModel('gpt-4o-mini');
                     setModelOpen(false);
                   }}
                   className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/5 text-sm flex items-center gap-2"
                 >
-                  <img src="/images/logo.svg" alt="OpenAI" className="w-5 h-5" />
-                  GPTâ€‘4o mini (OpenAI)
-                </button>
-                <button
-                  onClick={() => {
-                    setModel('gemini-1.5-flash'); // Google Gemini direct
-                    setModelOpen(false);
-                  }}
-                  className="mt-1 w-full text-left px-3 py-2 rounded-lg hover:bg-white/5 text-sm flex items-center gap-2"
-                >
-                  <img src="/images/Gemini.svg" alt="Gemini" className="w-5 h-5" />
-                  Gemini 1.5 Flash (Google)
+                  <img src="/images/logo.svg" alt="AuraV1" className="w-5 h-5" />
+                  Aura V1
                 </button>
                 <div className="mx-2 my-1 h-px bg-white/10" />
                 <button
@@ -328,8 +413,8 @@ export default function ChatPanel({
                 autoFocus
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                onBlur={commitTitle}
-                onKeyDown={(e) => e.key === 'Enter' && commitTitle()}
+                onBlur={() => void commitTitle()}
+                onKeyDown={(e) => e.key === 'Enter' && void commitTitle()}
                 className="mx-auto w-full max-w-[420px] text-center bg-transparent outline-none border-b border-white/10 focus:border-[#8B3DFF] text-white text-[20px] font-semibold"
               />
             ) : (
@@ -375,30 +460,57 @@ export default function ChatPanel({
         </div>
       </div>
 
+      {filteredMessages.length > 0 && (
+        <div className="absolute top-[92px] left-[50%] z-40 w-[min(560px,calc(100%-48px))] -translate-x-1/2">
+          <div className="rounded-[28px] border border-white/15 bg-[#0b1320]/90 px-4 py-4 shadow-[0_25px_80px_rgba(1,5,18,0.95)] backdrop-blur">
+            <div className="text-[10px] uppercase tracking-[0.35em] text-white/50">Buscar mensajes</div>
+            <p className="mt-1 text-sm text-white/70">
+              {conversationTitle || 'Conversación actual'} · {filteredMessages.length} resultados
+            </p>
+            <div className="mt-3 flex max-h-[260px] flex-col gap-2 overflow-y-auto pr-2">
+              {filteredMessages.map((msg) => (
+                <button
+                  key={msg.id}
+                  onClick={() => scrollToMessage(msg.id)}
+                  className="rounded-2xl border border-white/5 bg-white/5 px-3 py-2 text-left text-sm text-white/80 transition hover:bg-white/10 hover:border-white/10"
+                >
+                  <div className="text-[12px] text-white/60">
+                    {new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                  <p className="mt-1 text-sm leading-relaxed text-white">
+                    {renderHighlightedText(msg.text, searchQuery || '')}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* mensajes */}
       <div ref={scrollerRef} className="scroll-slim mt-6 flex-1 min-h-0 overflow-y-auto pr-1">
-        <div className="flex flex-col gap-5 pb-[116px]">
+        <div className="flex flex-col gap-5 pb-[5px]">
           {messages.map((m) => (
-            <Bubble key={m.id} msg={m} />
+            <Bubble
+              key={m.id}
+              msg={m}
+              highlight={highlightedMessageId === m.id}
+              forwardedRef={(el) => {
+                messageRefs.current[m.id] = el;
+              }}
+            />
           ))}
         </div>
       </div>
 
       {/* composer */}
-      <div className="sticky bottom-0 left-0 right-0 z-10">
+      <div className="sticky bottom-0 left-0 right-0 z-10 relative">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#070a14] to-transparent" />
         <div className="pointer-events-none h-3 bg-gradient-to-t from-[#070a14] to-transparent" />
         <div className="bg-[#070a14]/90 backdrop-blur border-t border-white/10">
           <div className="px-3 sm:px-4 py-3 pb-[calc(10px+env(safe-area-inset-bottom,0px))]">
             <div className="rounded-[20px] bg-white/5 ring-1 ring-white/10 p-3">
               <div className="flex items-center gap-3">
-                <button
-                  className="grid place-items-center w-9 h-9 rounded-lg bg-white/5 ring-1 ring-white/10 hover:bg-white/10 transition"
-                  title="Adjuntar"
-                >
-                  <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-white/80">
-                    <path d="M12 2a5 5 0 015 5v8a3 3 0 11-6 0V8a1 1 0 112 0v7a1 1 0 102 0V7a3 3 0 10-6 0v8a5 5 0 1010 0V8h2v7a7 7 0 11-14 0V7a5 5 0 015-5z" />
-                  </svg>
-                </button>
                 <input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
@@ -424,7 +536,15 @@ export default function ChatPanel({
 
 /* ---------- Componentes de mensaje ---------- */
 
-function Bubble({ msg }: { msg: Msg }) {
+function Bubble({
+  msg,
+  forwardedRef,
+  highlight,
+}: {
+  msg: Msg;
+  forwardedRef?: (el: HTMLDivElement | null) => void;
+  highlight?: boolean;
+}) {
   const isUser = msg.author === 'user';
   const [copied, setCopied] = React.useState(false);
   const [showReasoning, setShowReasoning] = React.useState(false);
@@ -439,7 +559,12 @@ function Bubble({ msg }: { msg: Msg }) {
   };
 
   return (
-    <div className={`group/message flex items-end gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
+    <div
+      ref={forwardedRef}
+      className={`group/message flex items-end gap-3 ${isUser ? 'flex-row-reverse' : ''} ${
+        highlight ? 'ring-2 ring-[#8B3DFF]/70 rounded-3xl' : ''
+      }`}
+    >
       <div className="shrink-0">
         {isUser ? (
           <img
@@ -579,7 +704,3 @@ function CopyIcon(props: any) {
     </svg>
   );
 }
-
-
-
-

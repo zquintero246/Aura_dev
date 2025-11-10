@@ -26,6 +26,8 @@ type Props = {
   onTogglePin?: (id: string, nextPinned: boolean) => void;
   /** Borrar conversación */
   onDelete?: (id: string) => void;
+  /** Renombrar conversación */
+  onMenuRename?: (id: string) => void;
 };
 
 /**
@@ -43,6 +45,7 @@ const ConversationsPanel: React.FC<Props> = ({
   railWidth = 72,
   onTogglePin,
   onDelete,
+  onMenuRename,
 }) => {
   return (
     <aside
@@ -100,16 +103,17 @@ const ConversationsPanel: React.FC<Props> = ({
             <EmptyRow text="Sin anclados por ahora" />
           ) : (
             pinned.map((c) => (
-              <Row
-                key={c.id}
-                active={c.id === selectedId}
-                label={c.title}
-                pinned
-                onClick={() => onSelect?.(c.id)}
-                onMenuPinToggle={() => onTogglePin?.(c.id, false)}
-                onMenuDelete={() => onDelete?.(c.id)}
-              />
-            ))
+            <Row
+              key={c.id}
+              active={c.id === selectedId}
+              label={c.title}
+              pinned
+              onClick={() => onSelect?.(c.id)}
+              onMenuPinToggle={() => onTogglePin?.(c.id, false)}
+              onMenuDelete={() => onDelete?.(c.id)}
+              onMenuRename={() => onMenuRename?.(c.id)}
+            />
+          ))
           )}
         </Section>
 
@@ -133,15 +137,16 @@ const ConversationsPanel: React.FC<Props> = ({
             <EmptyRow text="Aún no hay recientes" />
           ) : (
             recent.map((c) => (
-              <Row
-                key={c.id}
-                active={c.id === selectedId}
-                label={c.title}
-                onClick={() => onSelect?.(c.id)}
-                onMenuPinToggle={() => onTogglePin?.(c.id, true)}
-                onMenuDelete={() => onDelete?.(c.id)}
-              />
-            ))
+            <Row
+              key={c.id}
+              active={c.id === selectedId}
+              label={c.title}
+              onClick={() => onSelect?.(c.id)}
+              onMenuPinToggle={() => onTogglePin?.(c.id, true)}
+              onMenuDelete={() => onDelete?.(c.id)}
+              onMenuRename={() => onMenuRename?.(c.id)}
+            />
+          ))
           )}
         </Section>
 
@@ -182,6 +187,7 @@ function Row({
   onClick,
   onMenuPinToggle,
   onMenuDelete,
+  onMenuRename,
 }: {
   label: string;
   active?: boolean;
@@ -189,6 +195,7 @@ function Row({
   onClick?: () => void;
   onMenuPinToggle?: () => void;
   onMenuDelete?: () => void;
+  onMenuRename?: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
   return (
@@ -216,18 +223,28 @@ function Row({
           </button>
           {open && (
             <div className="absolute right-0 mt-1 min-w-[160px] rounded-md bg-[#111626] ring-1 ring-white/10 shadow-lg z-10">
-              <button
-                className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 text-white/80"
-                onClick={() => {
-                  setOpen(false);
-                  onMenuPinToggle?.();
-                }}
-              >
-                {pinned ? 'Desanclar' : 'Anclar'} conversación
-              </button>
-              <div className="h-px bg-white/10 mx-1" />
-              <button
-                className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 text-red-400"
+            <button
+              className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 text-white/80"
+              onClick={() => {
+                setOpen(false);
+                onMenuPinToggle?.();
+              }}
+            >
+              {pinned ? 'Desanclar' : 'Anclar'} conversación
+            </button>
+            <div className="h-px bg-white/10 mx-1" />
+            <button
+              className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 text-white/80"
+              onClick={() => {
+                setOpen(false);
+                onMenuRename?.();
+              }}
+            >
+              Cambiar nombre
+            </button>
+            <div className="h-px bg-white/10 mx-1" />
+            <button
+              className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 text-red-400"
                 onClick={() => {
                   setOpen(false);
                   onMenuDelete?.();

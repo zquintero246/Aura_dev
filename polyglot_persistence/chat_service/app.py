@@ -21,7 +21,7 @@ else:
 # Ensure DELETE and Authorization header are permitted for preflight
 CORS(
     app,
-    resources={r"/*": {"origins": "*"}},
+    resources={r"/*": {"origins": _origins}},
     supports_credentials=True,
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "authorization"],
@@ -56,6 +56,7 @@ def index():
             "/chat/history",
             "/chat/conversations/<id>/messages",
             "/chat/conversations/<id>",
+            "/chat/conversations/<id> (PUT)",
         ],
     })
 
@@ -156,6 +157,30 @@ def delete_conversation(id: str):
         return jsonify({"message": f"Failed to delete conversation: {e}"}), 500
 
 
+@app.route("/chat/conversations/<conv_id>", methods=["PUT"])
+def update_conversation(conv_id: str):
+    auth, err = _current_user()
+    if not auth:
+        return jsonify({"message": f"Unauthorized: {err}"}), 401
+    payload = request.get_json(silent=True) or {}
+    title = (payload.get("title") or "").strip()
+    if not title:
+        return jsonify({"message": "title es requerido"}), 400
+    try:
+        conv = mongosvc.update_conversation_title(
+            user_id=auth["user_id"],
+            conversation_id=conv_id,
+            title=title,
+        )
+        return jsonify({"conversation": conv}), 200
+    except PermissionError as e:
+        return jsonify({"message": str(e)}), 403
+    except ValueError as e:
+        return jsonify({"message": str(e)}), 400
+    except Exception as e:
+        return jsonify({"message": f"Failed to update conversation: {e}"}), 500
+
+
 # --- catch-all opcional para /chat/* ---
 @app.route("/chat/<path:subpath>", methods=["OPTIONS"])
 @cross_origin(
@@ -184,4 +209,3 @@ _print_routes()
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5080"))
     app.run(host="0.0.0.0", port=port)
-

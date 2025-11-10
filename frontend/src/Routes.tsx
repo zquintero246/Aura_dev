@@ -9,7 +9,6 @@ import ChatHome from './pages/Chat/AppLayout';
 import RequireVerified from './guards/RequireVerified';
 import RedirectIfVerified from './guards/RedirectIfVerified';
 import Profile from './pages/Account/Profile';
-import Settings from './pages/Account/Settings';
 import ChangePassword from './pages/Account/ChangePassword';
 
 const AppRoutes = () => {
@@ -23,7 +22,6 @@ const AppRoutes = () => {
         <Route path="/chat" element={<RequireVerified><ChatHome /></RequireVerified>} />
         {/* Whiteboard routes removed */}
         <Route path="/profile" element={<RequireVerified><Profile /></RequireVerified>} />
-        <Route path="/settings" element={<RequireVerified><Settings /></RequireVerified>} />
         <Route path="/change-password" element={<RequireVerified><ChangePassword /></RequireVerified>} />
       </Routes>
     </Router>

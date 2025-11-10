@@ -3,6 +3,7 @@
     "@types/react-helmet": "^6.1.11"
   },
   "dependencies": {
+    "react-helmet-async": "^2.0.5",
     "react-simple-maps": "^3.0.0"
   }
 }

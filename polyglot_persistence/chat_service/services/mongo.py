@@ -17,6 +17,22 @@ _db = _client[MONGO_DB]
 conversations = _db["conversations"]
 messages = _db["messages"]
 
+DEFAULT_BUBBLE_COLOR = "#7B2FE3"
+DEFAULT_BACKGROUND_COLOR = "#070a14"
+
+DEFAULT_THEME = {
+    "bubble_color": DEFAULT_BUBBLE_COLOR,
+    "background_color": DEFAULT_BACKGROUND_COLOR,
+}
+
+
+def _merge_theme(source: Dict[str, Any]) -> Dict[str, str]:
+    theme = source.get("theme") or {}
+    return {
+        "bubble_color": theme.get("bubble_color") or DEFAULT_BUBBLE_COLOR,
+        "background_color": theme.get("background_color") or DEFAULT_BACKGROUND_COLOR,
+    }
+
 
 def ensure_indexes() -> None:
     # Verify connection and log database
@@ -43,9 +59,18 @@ def create_conversation(user_id: str, title: Optional[str] = None) -> Dict[str, 
         "created_at": now,
         "updated_at": now,
         "last_message_at": now,
+        "theme": {
+            "bubble_color": DEFAULT_BUBBLE_COLOR,
+            "background_color": DEFAULT_BACKGROUND_COLOR,
+        },
     }
     res = conversations.insert_one(doc)
-    return {"id": str(res.inserted_id), "title": doc["title"], "created_at": doc["created_at"].isoformat() + "Z"}
+    return {
+        "id": str(res.inserted_id),
+        "title": doc["title"],
+        "created_at": doc["created_at"].isoformat() + "Z",
+        "theme": _merge_theme(doc),
+    }
 
 
 def list_conversations(user_id: str) -> List[Dict[str, Any]]:
@@ -57,19 +82,42 @@ def list_conversations(user_id: str) -> List[Dict[str, Any]]:
             "created_at": c.get("created_at").isoformat() + "Z" if c.get("created_at") else None,
             "updated_at": c.get("updated_at").isoformat() + "Z" if c.get("updated_at") else None,
             "last_message_at": c.get("last_message_at").isoformat() + "Z" if c.get("last_message_at") else None,
+            "theme": _merge_theme(c),
         })
     return items
 
 
-def update_conversation_title(user_id: str, conversation_id: str, title: str) -> Dict[str, Any]:
-    cleaned = (title or "").strip()
-    if not cleaned:
-        raise ValueError("Title cannot be empty")
+def update_conversation(
+    user_id: str,
+    conversation_id: str,
+    title: Optional[str] = None,
+    theme: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    updates: Dict[str, Any] = {}
+    cleaned_title = None
+    if title is not None:
+        cleaned_title = title.strip()
+        if not cleaned_title:
+            raise ValueError("Title cannot be empty")
+        updates["title"] = cleaned_title
+
+    if theme:
+        bubble = theme.get("bubble_color")
+        if bubble:
+            updates["theme.bubble_color"] = bubble
+        background = theme.get("background_color")
+        if background:
+            updates["theme.background_color"] = background
+
+    if not updates:
+        raise ValueError("No fields to update")
+
     cid = _oid(conversation_id)
     now = datetime.utcnow()
+    updates["updated_at"] = now
     updated = conversations.find_one_and_update(
         {"_id": cid, "user_id": str(user_id)},
-        {"$set": {"title": cleaned, "updated_at": now}},
+        {"$set": updates},
         return_document=ReturnDocument.AFTER,
     )
     if not updated:
@@ -80,6 +128,7 @@ def update_conversation_title(user_id: str, conversation_id: str, title: str) ->
         "created_at": updated.get("created_at").isoformat() + "Z" if updated.get("created_at") else None,
         "updated_at": updated.get("updated_at").isoformat() + "Z" if updated.get("updated_at") else None,
         "last_message_at": updated.get("last_message_at").isoformat() + "Z" if updated.get("last_message_at") else None,
+        "theme": _merge_theme(updated),
     }
 
 

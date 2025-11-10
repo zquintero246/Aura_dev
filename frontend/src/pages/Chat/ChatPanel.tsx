@@ -1,16 +1,16 @@
 ﻿// ChatPanel.tsx (wired to GPT)
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { chat as chatApi, ChatMessage } from '../../lib/chat';
+import type { Conversation } from '../../lib/chatApi';
 
 import { ensureChatToken } from '../../lib/auth';
 import { startConversation as startChatConversation } from '../../lib/chatApi';
 import { listMessages as loadChatHistory, ChatMessageItem } from '../../lib/chatApi';
-import { updateConversationTitle as persistConversationTitle } from '../../lib/conversations';
+import { createConversation, updateConversation } from '../../lib/conversations';
 import MarkdownLite from '../../components/MarkdownLite';
 // (inline svg icons, no external deps)
 
-const escapeRegExp = (value: string) =>
-  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const renderHighlightedText = (text: string, query: string) => {
   if (!query) return text;
@@ -29,6 +29,35 @@ const renderHighlightedText = (text: string, query: string) => {
   });
 };
 
+const hexToRgb = (value: string): { r: number; g: number; b: number } | null => {
+  let hex = (value || '').trim();
+  if (!hex) return null;
+  if (hex.startsWith('#')) hex = hex.slice(1);
+  if (hex.length === 3) {
+    hex = hex
+      .split('')
+      .map((ch) => ch + ch)
+      .join('');
+  }
+  if (hex.length !== 6 || !/^[0-9a-fA-F]{6}$/.test(hex)) return null;
+  const intVal = parseInt(hex, 16);
+  return {
+    r: (intVal >> 16) & 255,
+    g: (intVal >> 8) & 255,
+    b: intVal & 255,
+  };
+};
+
+const getContrastColor = (value: string): string => {
+  const rgb = hexToRgb(value);
+  if (!rgb) return '#ffffff';
+  const yiq = (rgb.r * 299 + rgb.g * 587 + rgb.b * 114) / 1000;
+  return yiq >= 150 ? '#0f172a' : '#ffffff';
+};
+
+const DEFAULT_BUBBLE_COLOR = '#7B2FE3';
+const DEFAULT_BACKGROUND_COLOR = '#070a14';
+
 type Msg = {
   id: string;
   author: 'user' | 'assistant';
@@ -41,8 +70,14 @@ type Msg = {
   thinkMs?: number;
 };
 
+type ThemeSettings = {
+  bubbleColor: string;
+  backgroundColor: string;
+};
+
 export default function ChatPanel({
   conversationId,
+  conversation,
   conversationTitle,
   userName = 'Tú',
   userAvatar = '/images/avatar_demo.jpg',
@@ -51,6 +86,7 @@ export default function ChatPanel({
   onClearSearch,
 }: {
   conversationId: string;
+  conversation?: Conversation;
   conversationTitle?: string;
   userName?: string;
   userAvatar?: string;
@@ -60,6 +96,122 @@ export default function ChatPanel({
 }) {
   const isTempConversation =
     typeof conversationId === 'string' && conversationId.startsWith('tmp-');
+
+  const settingsRef = useRef<HTMLDivElement | null>(null);
+  const themeTimerRef = useRef<number | null>(null);
+  const pendingThemeRef = useRef<ThemeSettings | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() => ({
+    bubbleColor: conversation?.theme?.bubble_color ?? DEFAULT_BUBBLE_COLOR,
+    backgroundColor: conversation?.theme?.background_color ?? DEFAULT_BACKGROUND_COLOR,
+  }));
+
+  useEffect(() => {
+    setThemeSettings({
+      bubbleColor: conversation?.theme?.bubble_color ?? DEFAULT_BUBBLE_COLOR,
+      backgroundColor: conversation?.theme?.background_color ?? DEFAULT_BACKGROUND_COLOR,
+    });
+    pendingThemeRef.current = null;
+    if (themeTimerRef.current) {
+      window.clearTimeout(themeTimerRef.current);
+      themeTimerRef.current = null;
+    }
+    setSettingsOpen(false);
+  }, [conversation?.id, conversation?.theme?.bubble_color, conversation?.theme?.background_color]);
+
+  useEffect(() => {
+    if (!settingsOpen) return undefined;
+    const handleDocumentClick = (event: MouseEvent) => {
+      if (settingsRef.current && !settingsRef.current.contains(event.target as Node)) {
+        setSettingsOpen(false);
+      }
+    };
+    const handleDocumentKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSettingsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleDocumentClick);
+    document.addEventListener('keydown', handleDocumentKey);
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentClick);
+      document.removeEventListener('keydown', handleDocumentKey);
+    };
+  }, [settingsOpen]);
+
+  const flushThemeUpdate = useCallback(
+    async (values: ThemeSettings) => {
+      if (!conversationId || isTempConversation) {
+        pendingThemeRef.current = values;
+        return;
+      }
+      try {
+        await updateConversation(conversationId, {
+          bubbleColor: values.bubbleColor,
+          backgroundColor: values.backgroundColor,
+        });
+        pendingThemeRef.current = null;
+      } catch (err) {
+        console.error('[ChatPanel] Failed to save theme update', err);
+      }
+    },
+    [conversationId, isTempConversation]
+  );
+
+  const scheduleThemeUpdate = useCallback(
+    (partial: Partial<ThemeSettings>) => {
+      setThemeSettings((prev) => {
+        const next = { ...prev, ...partial };
+        pendingThemeRef.current = next;
+        return next;
+      });
+      if (themeTimerRef.current) {
+        window.clearTimeout(themeTimerRef.current);
+      }
+      themeTimerRef.current = window.setTimeout(() => {
+        const pending = pendingThemeRef.current;
+        if (pending) {
+          flushThemeUpdate(pending);
+        }
+      }, 360);
+    },
+    [flushThemeUpdate]
+  );
+
+  useEffect(() => {
+    if (!conversationId || isTempConversation) return;
+    if (pendingThemeRef.current) {
+      flushThemeUpdate(pendingThemeRef.current);
+    }
+  }, [conversationId, isTempConversation, flushThemeUpdate]);
+
+  useEffect(() => {
+    return () => {
+      if (themeTimerRef.current) {
+        window.clearTimeout(themeTimerRef.current);
+      }
+    };
+  }, []);
+
+  const bubbleTextColor = useMemo(
+    () => getContrastColor(themeSettings.bubbleColor),
+    [themeSettings.bubbleColor]
+  );
+
+  const conversationCreatedAtLabel = useMemo(() => {
+    if (!conversation?.created_at) return 'Sin fecha';
+    const date = new Date(conversation.created_at);
+    if (Number.isNaN(date.getTime())) return 'Sin fecha';
+    try {
+      return date.toLocaleString('es-ES', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+    } catch {
+      return date.toLocaleString();
+    }
+  }, [conversation?.created_at]);
 
   const ensureConversationId = async (): Promise<string> => {
     if (!isTempConversation) return conversationId;
@@ -89,6 +241,7 @@ export default function ChatPanel({
 
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Msg[]>([]);
+  const messageCount = useMemo(() => messages.filter((m) => !!m.text).length, [messages]);
   const [busy, setBusy] = useState(false);
   const createdRef = useRef(false);
 
@@ -224,7 +377,7 @@ export default function ChatPanel({
       return;
     }
     try {
-      await persistConversationTitle(conversationId, finalTitle);
+      await updateConversation(conversationId, { title: finalTitle });
       setTitle(finalTitle);
       onTitleChange?.(conversationId, finalTitle);
     } catch (err) {
@@ -338,7 +491,10 @@ export default function ChatPanel({
   };
 
   return (
-    <div className="h-full min-h-0 flex flex-col mx-auto max-w-[1400px] relative">
+    <div
+      className="h-full min-h-0 flex flex-col w-full relative px-5"
+      style={{ backgroundColor: themeSettings.backgroundColor }}
+    >
       {/* header */}
       <div className="sticky top-0 z-10 pt-3 pb-3 bg-[#070a14]/80 backdrop-blur rounded-t-[18px] border-b border-white/10">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-b from-transparent to-[#070a14]/90"></div>
@@ -347,7 +503,7 @@ export default function ChatPanel({
           <div className="relative">
             <button
               onClick={() => !modelLocked && setModelOpen((s) => !s)}
-              className="flex items-center gap-2 rounded-xl bg-white/5 ring-1 ring-white/10 hover:bg-white/10 transition px-2 py-2"
+              className="flex items-center gap-2 rounded-xl bg-white/5 hover:bg-white/10 transition px-2 py-2"
               title="Modelo"
               aria-label={model}
               aria-disabled={modelLocked}
@@ -361,7 +517,7 @@ export default function ChatPanel({
                       : '/images/logo.svg'
                 }
                 alt="Modelo"
-                className="w-5 h-5 rounded-lg object-contain"
+                className="w-5 h-5 object-contain"
               />
               {!modelLocked && (
                 <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-white/70">
@@ -434,16 +590,13 @@ export default function ChatPanel({
               </button>
             )}
           </div>
-          <div className="shrink-0">
+          <div className="relative shrink-0">
             <button
-              onClick={() => {
-                try {
-                  window.dispatchEvent(new CustomEvent('aura:chat:settings'));
-                } catch {}
-              }}
+              onClick={() => setSettingsOpen((prev) => !prev)}
               className="grid place-items-center w-9 h-9 rounded-lg bg-white/5 ring-1 ring-white/10 hover:bg-white/10 transition"
-              title="ConfiguraciÃ³n del chat"
-              aria-label="ConfiguraciÃ³n del chat"
+              title="Configuración del chat"
+              aria-label="Configuración del chat"
+              aria-expanded={settingsOpen}
             >
               <svg viewBox="0 0 512 512" fill="currentColor" className="w-5 h-5 text-white/80">
                 <g clipPath="url(#clip0_64_6)">
@@ -456,6 +609,111 @@ export default function ChatPanel({
                 </defs>
               </svg>
             </button>
+            {settingsOpen && (
+              <div
+                ref={settingsRef}
+                className="absolute right-0 top-full mt-2 w-[min(360px,calc(100vw-32px))] rounded-[26px] border border-white/15 bg-[#0b1320] p-4 shadow-[0_20px_80px_rgba(3,7,18,0.9)] text-white z-20"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">Configuración del chat</p>
+                    <p className="mt-1 text-[11px] text-white/60">
+                      Tus ajustes se guardan automáticamente.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setSettingsOpen(false)}
+                    aria-label="Cerrar configuración"
+                    className="rounded-full p-1 text-white/60 hover:text-white hover:bg-white/5"
+                  >
+                    <svg viewBox="0 0 20 20" className="w-4 h-4">
+                      <path
+                        d="M14.5 5.5l-4.5 4.5-4.5-4.5-1.5 1.5L8.5 11.5 3.5 16.5l1.5 1.5 5-5 5 5 1.5-1.5-5-5 5-5z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                  </button>
+                </div>
+                <div className="mt-4 space-y-3">
+                  <div className="space-y-1">
+                    <p className="text-[11px] uppercase tracking-[0.35em] text-white/50">Título</p>
+                    <div className="flex gap-2">
+                      <input
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && void commitTitle()}
+                        className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-[#8B3DFF]"
+                      />
+                      <button
+                        onClick={() => void commitTitle()}
+                        className="rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-white/20"
+                      >
+                        Guardar
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-[13px] text-white/70">
+                    <span>Mensajes</span>
+                    <span className="font-semibold text-white">{messageCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[13px] text-white/70">
+                    <span>Creado</span>
+                    <span className="text-right text-white/80">{conversationCreatedAtLabel}</span>
+                  </div>
+                  <div className="pt-3 border-t border-white/10 space-y-3">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.35em] text-white/50">
+                        <span>Color de burbuja</span>
+                        <span className="text-[10px]">
+                          {themeSettings.bubbleColor.toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={themeSettings.bubbleColor}
+                          onChange={(event) =>
+                            scheduleThemeUpdate({ bubbleColor: event.target.value })
+                          }
+                          className="h-10 w-10 rounded-full border-2 border-white/20 p-0"
+                        />
+                        <div className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm">
+                          <span className="block text-xs text-white/60">Vista previa</span>
+                          <span
+                            className="block h-2 rounded-full"
+                            style={{ backgroundColor: themeSettings.bubbleColor }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.35em] text-white/50">
+                        <span>Fondo</span>
+                        <span className="text-[10px]">
+                          {themeSettings.backgroundColor.toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={themeSettings.backgroundColor}
+                          onChange={(event) =>
+                            scheduleThemeUpdate({ backgroundColor: event.target.value })
+                          }
+                          className="h-10 w-10 rounded-full border-2 border-white/20 p-0"
+                        />
+                        <div
+                          className="flex-1 rounded-2xl border border-white/10 px-3 py-2 text-sm text-white/70"
+                          style={{ backgroundColor: themeSettings.backgroundColor }}
+                        >
+                          Aplicado
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -463,7 +721,9 @@ export default function ChatPanel({
       {filteredMessages.length > 0 && (
         <div className="absolute top-[92px] left-[50%] z-40 w-[min(560px,calc(100%-48px))] -translate-x-1/2">
           <div className="rounded-[28px] border border-white/15 bg-[#0b1320]/90 px-4 py-4 shadow-[0_25px_80px_rgba(1,5,18,0.95)] backdrop-blur">
-            <div className="text-[10px] uppercase tracking-[0.35em] text-white/50">Buscar mensajes</div>
+            <div className="text-[10px] uppercase tracking-[0.35em] text-white/50">
+              Buscar mensajes
+            </div>
             <p className="mt-1 text-sm text-white/70">
               {conversationTitle || 'Conversación actual'} · {filteredMessages.length} resultados
             </p>
@@ -475,7 +735,10 @@ export default function ChatPanel({
                   className="rounded-2xl border border-white/5 bg-white/5 px-3 py-2 text-left text-sm text-white/80 transition hover:bg-white/10 hover:border-white/10"
                 >
                   <div className="text-[12px] text-white/60">
-                    {new Date(msg.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {new Date(msg.ts).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
                   </div>
                   <p className="mt-1 text-sm leading-relaxed text-white">
                     {renderHighlightedText(msg.text, searchQuery || '')}
@@ -488,12 +751,15 @@ export default function ChatPanel({
       )}
 
       {/* mensajes */}
-      <div ref={scrollerRef} className="scroll-slim mt-6 flex-1 min-h-0 overflow-y-auto pr-1">
+      <div ref={scrollerRef} className="scroll-slim flex-1 min-h-0 overflow-y-auto relative">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#070a14]/90 to-transparent" />
         <div className="flex flex-col gap-5 pb-[5px]">
           {messages.map((m) => (
             <Bubble
               key={m.id}
               msg={m}
+              bubbleColor={themeSettings.bubbleColor}
+              bubbleTextColor={bubbleTextColor}
               highlight={highlightedMessageId === m.id}
               forwardedRef={(el) => {
                 messageRefs.current[m.id] = el;
@@ -505,8 +771,6 @@ export default function ChatPanel({
 
       {/* composer */}
       <div className="sticky bottom-0 left-0 right-0 z-10 relative">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#070a14] to-transparent" />
-        <div className="pointer-events-none h-3 bg-gradient-to-t from-[#070a14] to-transparent" />
         <div className="bg-[#070a14]/90 backdrop-blur border-t border-white/10">
           <div className="px-3 sm:px-4 py-3 pb-[calc(10px+env(safe-area-inset-bottom,0px))]">
             <div className="rounded-[20px] bg-white/5 ring-1 ring-white/10 p-3">
@@ -540,10 +804,14 @@ function Bubble({
   msg,
   forwardedRef,
   highlight,
+  bubbleColor,
+  bubbleTextColor,
 }: {
   msg: Msg;
   forwardedRef?: (el: HTMLDivElement | null) => void;
   highlight?: boolean;
+  bubbleColor?: string;
+  bubbleTextColor?: string;
 }) {
   const isUser = msg.author === 'user';
   const [copied, setCopied] = React.useState(false);
@@ -570,7 +838,7 @@ function Bubble({
           <img
             src={msg.avatar || '/images/avatar_demo.jpg'}
             alt={msg.name}
-            className="w-8 h-8 rounded-full object-cover ring-1 ring-white/10"
+            className="w-8 h-8 rounded-full object-contain ring-1 ring-white/10"
             onError={(e) => {
               const t = e.currentTarget;
               if (t.src.indexOf('/images/avatar_demo.jpg') === -1)
@@ -590,7 +858,20 @@ function Bubble({
           <div className="space-y-2">
             <ThinkingStripe />
             <div
-              className={`inline-flex items-center gap-1 px-3 py-2 rounded-2xl ${isUser ? 'bg-[#7B2FE3] text-white rounded-br-md' : 'bg-white/5 ring-1 ring-white/10 text-white rounded-bl-md'}`}
+              className={`inline-flex items-center gap-1 px-3 py-2 rounded-2xl ${
+                isUser
+                  ? 'rounded-br-md'
+                  : 'bg-white/5 ring-1 ring-white/10 text-white rounded-bl-md'
+              }`}
+              style={
+                isUser
+                  ? {
+                      backgroundColor: bubbleColor || DEFAULT_BUBBLE_COLOR,
+                      color:
+                        bubbleTextColor || getContrastColor(bubbleColor || DEFAULT_BUBBLE_COLOR),
+                    }
+                  : undefined
+              }
             >
               <Dot delay="0ms" />
               <Dot delay="150ms" />
@@ -599,7 +880,17 @@ function Bubble({
           </div>
         ) : (
           <div
-            className={`inline-block px-4 py-2 text-[15px] leading-relaxed rounded-2xl ${isUser ? 'bg-[#7B2FE3] text-white rounded-br-md' : 'bg-white/5 ring-1 ring-white/10 text-white rounded-bl-md'}`}
+            className={`inline-block px-4 py-2 text-[15px] leading-relaxed rounded-2xl ${
+              isUser ? 'rounded-br-md' : 'bg-white/5 ring-1 ring-white/10 text-white rounded-bl-md'
+            }`}
+            style={
+              isUser
+                ? {
+                    backgroundColor: bubbleColor || DEFAULT_BUBBLE_COLOR,
+                    color: bubbleTextColor || getContrastColor(bubbleColor || DEFAULT_BUBBLE_COLOR),
+                  }
+                : undefined
+            }
           >
             {isUser ? (
               msg.text

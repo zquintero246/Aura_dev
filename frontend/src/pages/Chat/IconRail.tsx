@@ -122,19 +122,13 @@ const IconRailInline: React.FC<IconRailInlineProps> = ({
               <DropdownItem
                 icon={<UserIcon />}
                 label="Perfil"
-                onClick={() => { try { onProfile?.(); } finally { setMenuOpen(false); } }}
-              />
-
-              <DropdownItem
-                icon={<GearIcon />}
-                label="Configuración"
-                onClick={() => { try { onSettings?.(); } finally { setMenuOpen(false); } }}
-              />
-
-              <DropdownItem
-                icon={<LockIcon />}
-                label="Cambiar contraseña"
-                onClick={() => { try { onChangePassword?.(); } finally { setMenuOpen(false); } }}
+                onClick={() => {
+                  try {
+                    onProfile?.();
+                  } finally {
+                    setMenuOpen(false);
+                  }
+                }}
               />
 
               <div className="h-px bg-white/10 my-1" />
@@ -142,7 +136,13 @@ const IconRailInline: React.FC<IconRailInlineProps> = ({
               <DropdownItem
                 icon={<LogoutIcon />}
                 label="Cerrar sesión"
-                onClick={() => { try { onLogout?.(); } finally { setMenuOpen(false); } }}
+                onClick={() => {
+                  try {
+                    onLogout?.();
+                  } finally {
+                    setMenuOpen(false);
+                  }
+                }}
               />
             </div>
           )}

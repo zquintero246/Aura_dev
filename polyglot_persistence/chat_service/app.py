@@ -1,4 +1,6 @@
 import os
+from typing import Dict
+
 from flask import Flask, jsonify, request
 from flask_cors import CORS, cross_origin
 
@@ -133,7 +135,7 @@ def conversation_messages(conv_id: str):
 
 @app.route("/chat/conversations/<id>", methods=["DELETE", "OPTIONS"])
 @cross_origin(
-    origins=["http://127.0.0.1:4028", "http://localhost:4028"],
+    origins=["https://bk0vxzx8-4028.use.devtunnels.ms"],
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "authorization"],
 )
@@ -163,14 +165,23 @@ def update_conversation(conv_id: str):
     if not auth:
         return jsonify({"message": f"Unauthorized: {err}"}), 401
     payload = request.get_json(silent=True) or {}
-    title = (payload.get("title") or "").strip()
-    if not title:
-        return jsonify({"message": "title es requerido"}), 400
+    raw_title = payload.get("title")
+    title = raw_title.strip() if isinstance(raw_title, str) and raw_title.strip() else None
+    bubble_color = payload.get("bubble_color") or payload.get("bubbleColor")
+    background_color = payload.get("background_color") or payload.get("backgroundColor")
+    if not any([title, bubble_color, background_color]):
+        return jsonify({"message": "Se requiere al menos un campo válido para actualizar"}), 400
+    theme: Dict[str, str] = {}
+    if bubble_color:
+        theme["bubble_color"] = bubble_color
+    if background_color:
+        theme["background_color"] = background_color
     try:
-        conv = mongosvc.update_conversation_title(
+        conv = mongosvc.update_conversation(
             user_id=auth["user_id"],
             conversation_id=conv_id,
             title=title,
+            theme=theme or None,
         )
         return jsonify({"conversation": conv}), 200
     except PermissionError as e:

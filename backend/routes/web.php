@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\ChatController as ApiChatController;
 use App\Http\Controllers\Api\ConversationsController as ApiConversationsController;
 use App\Http\Controllers\Api\ConversationController as ApiConversationController;
 use App\Http\Controllers\Api\LocationController as ApiLocationController;
+use App\Http\Controllers\Api\ProfileController as ApiProfileController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -51,6 +52,7 @@ Route::middleware('auth')->group(function () {
     // Location endpoints (session auth)
     Route::post('api/location', [ApiLocationController::class, 'store']);
     Route::get('api/location/me', [ApiLocationController::class, 'me']);
+    Route::post('api/profile', [ApiProfileController::class, 'update']);
 });
 
 // Token auth (Sanctum) variant without breaking existing
@@ -60,6 +62,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Location endpoints (Sanctum)
     Route::post('api/location', [ApiLocationController::class, 'store']);
     Route::get('api/location/me', [ApiLocationController::class, 'me']);
+    Route::post('api/profile', [ApiProfileController::class, 'update']);
 });
 
 // IMPORTANT:

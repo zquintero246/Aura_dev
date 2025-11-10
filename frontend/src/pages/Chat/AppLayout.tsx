@@ -457,8 +457,6 @@ export default function AppLayout() {
             setSelection({ type: 'profile' });
             setConversationsOpen(false);
           }}
-          onSettings={() => navigate('/settings')}
-          onChangePassword={() => navigate('/change-password')}
           onLogout={handleLogout}
         />
 
@@ -491,7 +489,7 @@ export default function AppLayout() {
 
         <main
           style={{ paddingLeft: mainPaddingLeft }}
-          className="pt-6 pr-6 pb-6 h-screen overflow-hidden"
+          className="h-screen overflow-hidden"
         >
           {selection?.type === 'profile' ? (
             <div className="w-full h-full">
@@ -500,11 +498,13 @@ export default function AppLayout() {
                 email={user?.email || ''}
                 id={user?.id || ''}
                 avatarUrl={user?.avatar_url || undefined}
+                onProfileChange={(updated) => setUser(updated)}
               />
             </div>
           ) : activeChat ? (
           <ChatPanel
             conversationId={activeChat.id}
+            conversation={activeChat}
             onTitleChange={handleChatTitleChange}
             conversationTitle={activeChat.title}
             userName={user?.name || 'Tú'}

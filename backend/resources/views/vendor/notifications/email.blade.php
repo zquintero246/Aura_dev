@@ -42,7 +42,10 @@
                     @isset($actionText)
                         <tr>
                             <td align="center" style="padding:32px 0;">
-                                <a href="{{ $actionUrl }}" target="_blank" rel="noopener"
+                                @php
+                                    $overrideUrl = preg_replace('/https?:\/\/[^\/]+/', config('app.verification_url', $actionUrl), $actionUrl);
+                                @endphp
+                                <a href="{{ $overrideUrl }}" target="_blank" rel="noopener"
                                     style="display:inline-block; background:linear-gradient(90deg,#CA5CF5 0%,#7405B4 100%); color:#fff; text-decoration:none; font-weight:600; font-size:15px; padding:14px 36px; border-radius:14px; box-shadow:0 4px 20px rgba(116,5,180,0.4);">
                                     {{ $actionText }}
                                 </a>

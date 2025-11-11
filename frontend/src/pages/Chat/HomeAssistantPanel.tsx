@@ -174,7 +174,9 @@ export default function HomeAssistantPanel() {
           // Load devices
           try {
             const devs = await listDevices();
-            setDevices(Array.isArray(devs) && devs.length > 0 ? withOverrides(devs) : seedSimDevices());
+            setDevices(
+              Array.isArray(devs) && devs.length > 0 ? withOverrides(devs) : seedSimDevices()
+            );
           } catch {}
         } else {
           // Fallback: use localStorage coords if present
@@ -193,7 +195,9 @@ export default function HomeAssistantPanel() {
                 } catch {}
                 try {
                   const devs = await listDevices();
-                  setDevices(Array.isArray(devs) && devs.length > 0 ? withOverrides(devs) : seedSimDevices());
+                  setDevices(
+                    Array.isArray(devs) && devs.length > 0 ? withOverrides(devs) : seedSimDevices()
+                  );
                 } catch {
                   setDevices(seedSimDevices());
                 }
@@ -231,7 +235,8 @@ export default function HomeAssistantPanel() {
     const poll = async () => {
       try {
         const devs = await listDevices();
-        if (!cancelled && Array.isArray(devs)) setDevices(devs.length > 0 ? withOverrides(devs) : seedSimDevices());
+        if (!cancelled && Array.isArray(devs))
+          setDevices(devs.length > 0 ? withOverrides(devs) : seedSimDevices());
       } catch {
         if (!cancelled) setDevices(seedSimDevices());
       }
@@ -505,7 +510,10 @@ export default function HomeAssistantPanel() {
   type TeleSeries = { label: string; samples: TelemetrySample[] };
   type TeleDB = Record<string, { series: Record<string, TeleSeries> }>;
   const telemetryRef = useRef<TeleDB>({});
-  const teleStoreKey = useMemo(() => (userId ? `aura:telemetry:${userId}` : 'aura:telemetry:anon'), [userId]);
+  const teleStoreKey = useMemo(
+    () => (userId ? `aura:telemetry:${userId}` : 'aura:telemetry:anon'),
+    [userId]
+  );
   const TELE_CAP = 5000;
   // Load persisted telemetry history (keeps history across toggles/repaints)
   useEffect(() => {
@@ -524,7 +532,11 @@ export default function HomeAssistantPanel() {
           } else if (val && val.samples) {
             const k = val.key || 'metric';
             const lbl = val.label || String(k);
-            out[did] = { series: { [k]: { label: lbl, samples: Array.isArray(val.samples) ? val.samples : [] } } };
+            out[did] = {
+              series: {
+                [k]: { label: lbl, samples: Array.isArray(val.samples) ? val.samples : [] },
+              },
+            };
           }
         }
         telemetryRef.current = out;
@@ -557,7 +569,15 @@ export default function HomeAssistantPanel() {
       default:
         // Fallback: choose first numeric/boolean property to chart
         const skip = new Set(['id', 'name', 'type', 'protocol', 'is_on', 'last_seen']);
-        const preferred = ['power_w','current_c','brightness','lux','volume','connected_devices','node_count'];
+        const preferred = [
+          'power_w',
+          'current_c',
+          'brightness',
+          'lux',
+          'volume',
+          'connected_devices',
+          'node_count',
+        ];
         for (const k of preferred) {
           const v = (d as any)[k];
           if (typeof v === 'number' || typeof v === 'boolean') {
@@ -603,8 +623,19 @@ export default function HomeAssistantPanel() {
     muted: ['Normal', 'Silenciado'],
   };
   const ENUM_LABELS: Record<string, Record<string, string>> = {
-    playback_state: { idle: 'Idle', stopped: 'Detenido', paused: 'Pausado', playing: 'Reproduciendo' },
-    hvac_mode: { off: 'Apagado', heat: 'Calor', cool: 'Frio', auto: 'Auto', fan_only: 'Ventilacion' },
+    playback_state: {
+      idle: 'Idle',
+      stopped: 'Detenido',
+      paused: 'Pausado',
+      playing: 'Reproduciendo',
+    },
+    hvac_mode: {
+      off: 'Apagado',
+      heat: 'Calor',
+      cool: 'Frio',
+      auto: 'Auto',
+      fan_only: 'Ventilacion',
+    },
   };
   const encodeMetric = (key: string, raw: any): number => {
     if (BOOL_KEYS.has(key)) return raw ? 1 : 0;
@@ -631,14 +662,26 @@ export default function HomeAssistantPanel() {
 
   // Colors per device chart (default palette + customizable)
   const DEFAULT_TELE_COLORS = [
-    '#8B3DFF', '#06B6D4', '#F59E0B', '#10B981', '#D946EF', '#EF4444', '#3B82F6', '#F97316', '#22C55E', '#EAB308', '#14B8A6', '#A855F7',
+    '#8B3DFF',
+    '#06B6D4',
+    '#F59E0B',
+    '#10B981',
+    '#D946EF',
+    '#EF4444',
+    '#3B82F6',
+    '#F97316',
+    '#22C55E',
+    '#EAB308',
+    '#14B8A6',
+    '#A855F7',
   ];
   const hashStr = (s: string): number => {
     let h = 0;
     for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
     return Math.abs(h);
   };
-  const defaultTeleColor = (id: string): string => DEFAULT_TELE_COLORS[hashStr(id) % DEFAULT_TELE_COLORS.length];
+  const defaultTeleColor = (id: string): string =>
+    DEFAULT_TELE_COLORS[hashStr(id) % DEFAULT_TELE_COLORS.length];
   const [telemetryColors, setTelemetryColors] = useState<Record<string, string>>({});
   const teleColorKey = useMemo(() => (userId ? `aura:tele:colors:${userId}` : ''), [userId]);
   useEffect(() => {
@@ -658,7 +701,10 @@ export default function HomeAssistantPanel() {
   // Telemetry resolution (aggregation buckets)
   type TeleRes = '1m' | '5m' | '20m' | '30m' | '1h' | '1d';
   const [telemetryResolution, setTelemetryResolution] = useState<TeleRes>('1m');
-  const teleResKey = useMemo(() => (userId ? `aura:tele:res:${userId}` : 'aura:tele:res:anon'), [userId]);
+  const teleResKey = useMemo(
+    () => (userId ? `aura:tele:res:${userId}` : 'aura:tele:res:anon'),
+    [userId]
+  );
   useEffect(() => {
     try {
       const raw = localStorage.getItem(teleResKey);
@@ -673,12 +719,18 @@ export default function HomeAssistantPanel() {
 
   const bucketMsFor = (res: TeleRes): number => {
     switch (res) {
-      case '1m': return 60 * 1000;
-      case '5m': return 5 * 60 * 1000;
-      case '20m': return 20 * 60 * 1000;
-      case '30m': return 30 * 60 * 1000;
-      case '1h': return 60 * 60 * 1000;
-      case '1d': return 24 * 60 * 60 * 1000;
+      case '1m':
+        return 60 * 1000;
+      case '5m':
+        return 5 * 60 * 1000;
+      case '20m':
+        return 20 * 60 * 1000;
+      case '30m':
+        return 30 * 60 * 1000;
+      case '1h':
+        return 60 * 60 * 1000;
+      case '1d':
+        return 24 * 60 * 60 * 1000;
     }
   };
   const aggregateSeries = (
@@ -691,10 +743,11 @@ export default function HomeAssistantPanel() {
     for (const s of samples) {
       const bucket = Math.floor(s.t / size) * size;
       const arr = byBucket.get(bucket);
-      if (arr) arr.push(s); else byBucket.set(bucket, [s]);
+      if (arr) arr.push(s);
+      else byBucket.set(bucket, [s]);
     }
     const out: TelemetrySample[] = [];
-    const buckets = Array.from(byBucket.keys()).sort((a,b)=>a-b);
+    const buckets = Array.from(byBucket.keys()).sort((a, b) => a - b);
     for (const b of buckets) {
       const arr = byBucket.get(b)!;
       if (opts.kind === 'num') {
@@ -706,7 +759,10 @@ export default function HomeAssistantPanel() {
         let best = arr[arr.length - 1].y;
         let max = -1;
         for (const [val, c] of counts) {
-          if (c > max) { max = c; best = val; }
+          if (c > max) {
+            max = c;
+            best = val;
+          }
         }
         out.push({ t: b, y: best });
       }
@@ -788,7 +844,10 @@ export default function HomeAssistantPanel() {
   const [deviceOrder, setDeviceOrder] = useState<string[] | null>(null);
   const deviceSizeKey = useMemo(() => (userId ? `aura:devices:size:${userId}` : ''), [userId]);
   const [deviceSizes, setDeviceSizes] = useState<Record<string, 's' | 'm' | 'l'>>({});
-  const deviceHeightsKey = useMemo(() => (userId ? `aura:devices:heights:${userId}` : ''), [userId]);
+  const deviceHeightsKey = useMemo(
+    () => (userId ? `aura:devices:heights:${userId}` : ''),
+    [userId]
+  );
   const [deviceHeights, setDeviceHeights] = useState<Record<string, number>>({});
   const deviceResizeRef = useRef<{ id: string; startY: number; startH: number } | null>(null);
   // Initialize/sanitize order when devices change or key available
@@ -851,7 +910,9 @@ export default function HomeAssistantPanel() {
   }, [deviceSizeKey, deviceSizes]);
   useEffect(() => {
     if (!deviceHeightsKey) return;
-    try { localStorage.setItem(deviceHeightsKey, JSON.stringify(deviceHeights)); } catch {}
+    try {
+      localStorage.setItem(deviceHeightsKey, JSON.stringify(deviceHeights));
+    } catch {}
   }, [deviceHeightsKey, deviceHeights]);
   const sortedDevices = useMemo(() => {
     if (!Array.isArray(devices)) return [] as Device[];
@@ -897,25 +958,35 @@ export default function HomeAssistantPanel() {
     setDevSizes((prev) => {
       const next = { ...prev } as Record<string, { w: number; h: number }>;
       let mutated = false;
-      for (const id of ids) if (!next[id]) { next[id] = { w: 6, h: 5 }; mutated = true; }
+      for (const id of ids)
+        if (!next[id]) {
+          next[id] = { w: 6, h: 5 };
+          mutated = true;
+        }
       return mutated ? next : prev;
     });
   }, [sortedDevices]);
   useEffect(() => {
     if (!devSizesKey) return;
-    try { localStorage.setItem(devSizesKey, JSON.stringify(devSizes)); } catch {}
+    try {
+      localStorage.setItem(devSizesKey, JSON.stringify(devSizes));
+    } catch {}
   }, [devSizesKey, devSizes]);
   const startDevResize = (id: string) => (e: React.PointerEvent) => {
     const sz = devSizes[id] || { w: 6, h: 5 };
-    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
     devResizeRef.current = { id, startX: e.clientX, startY: e.clientY, startW: sz.w, startH: sz.h };
     e.preventDefault();
     e.stopPropagation();
   };
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
-      const st = devResizeRef.current; if (!st) return;
-      const gridEl = devGridRef.current; if (!gridEl) return;
+      const st = devResizeRef.current;
+      if (!st) return;
+      const gridEl = devGridRef.current;
+      if (!gridEl) return;
       const cs = getComputedStyle(gridEl);
       const colGap = parseFloat(cs.columnGap || '0') || 0;
       const rowGap = parseFloat(cs.rowGap || '0') || 0;
@@ -929,7 +1000,9 @@ export default function HomeAssistantPanel() {
       const nextH = Math.max(3, Math.min(100, Math.round(st.startH + dy / incH)));
       setDevSizes((prev) => ({ ...prev, [st.id]: { w: nextW, h: nextH } }));
     };
-    const onUp = () => { devResizeRef.current = null; };
+    const onUp = () => {
+      devResizeRef.current = null;
+    };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     return () => {
@@ -941,7 +1014,9 @@ export default function HomeAssistantPanel() {
   const startResizeDevice = (id: string) => (e: React.PointerEvent) => {
     const parent = (e.currentTarget as HTMLElement).parentElement as HTMLElement | null;
     const curH = Number(parent?.style.minHeight?.replace('px', '')) || deviceHeights[id] || 96;
-    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
     deviceResizeRef.current = { id, startY: e.clientY, startH: curH };
     e.preventDefault();
     e.stopPropagation();
@@ -954,7 +1029,9 @@ export default function HomeAssistantPanel() {
       const next = Math.max(64, Math.min(360, Math.round(st.startH + dy)));
       setDeviceHeights((prev) => ({ ...prev, [st.id]: next }));
     };
-    const onUp = () => { deviceResizeRef.current = null; };
+    const onUp = () => {
+      deviceResizeRef.current = null;
+    };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     return () => {
@@ -1083,7 +1160,9 @@ export default function HomeAssistantPanel() {
                   const devs = await listDevices();
                   if (devs?.length) setDevices(withOverrides(devs));
                   else setDevices(seedSimDevices());
-                } catch { setDevices(seedSimDevices()); }
+                } catch {
+                  setDevices(seedSimDevices());
+                }
                 setAddModal(true);
               }}
               className="hidden px-3 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 text-sm inline-flex items-center gap-2"
@@ -1108,7 +1187,8 @@ export default function HomeAssistantPanel() {
             <div className="absolute inset-0 z-10 overflow-auto p-2 md:p-4 bg-black/30 backdrop-blur-sm">
               <div className="mb-3 flex items-center justify-start text-white/90">
                 <div className="font-medium tracking-wide flex items-center gap-2">
-                  <span className="inline-block w-4 h-4 rounded-sm bg-[#8B3DFF]" /> Telemetria (simulada)
+                  <span className="inline-block w-4 h-4 rounded-sm bg-[#8B3DFF]" /> Telemetria
+                  (simulada)
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -1119,42 +1199,78 @@ export default function HomeAssistantPanel() {
                   const devMeta = telemetryRef.current[d.id];
                   const nowTs = Date.now();
                   const s1 = devMeta?.series?.[metric.key]?.samples;
-                  const s1Samples = (s1 && s1.length > 0)
-                    ? s1
-                    : [{ t: nowTs, y: encodeMetric(metric.key, (d as any)[metric.key]) }];
-                  const s1IsBool = ['is_on','opened','motion_detected','muted'].includes(metric.key);
+                  const s1Samples =
+                    s1 && s1.length > 0
+                      ? s1
+                      : [{ t: nowTs, y: encodeMetric(metric.key, (d as any)[metric.key]) }];
+                  const s1IsBool = ['is_on', 'opened', 'motion_detected', 'muted'].includes(
+                    metric.key
+                  );
                   const s1IsEnum = !!(ENUM_SERIES as any)[metric.key];
-                  const s1Kind: 'bool' | 'enum' | 'num' = s1IsBool ? 'bool' : s1IsEnum ? 'enum' : 'num';
-                  let g1 = aggregateSeries(s1Samples, { kind: s1Kind, enumKey: s1IsEnum ? metric.key : undefined, res: telemetryResolution });
+                  const s1Kind: 'bool' | 'enum' | 'num' = s1IsBool
+                    ? 'bool'
+                    : s1IsEnum
+                      ? 'enum'
+                      : 'num';
+                  let g1 = aggregateSeries(s1Samples, {
+                    kind: s1Kind,
+                    enumKey: s1IsEnum ? metric.key : undefined,
+                    res: telemetryResolution,
+                  });
                   if (g1.length < 2) {
-                    const raw = [...s1Samples].sort((a,b)=>a.t-b.t);
+                    const raw = [...s1Samples].sort((a, b) => a.t - b.t);
                     if (raw.length >= 2) g1 = raw.slice(-2);
-                    else if (raw.length === 1) g1 = [{ t: raw[0].t - Math.max(10000, bucketMsFor(telemetryResolution)/6), y: raw[0].y }, raw[0]];
+                    else if (raw.length === 1)
+                      g1 = [
+                        {
+                          t: raw[0].t - Math.max(10000, bucketMsFor(telemetryResolution) / 6),
+                          y: raw[0].y,
+                        },
+                        raw[0],
+                      ];
                   }
                   let s2Samples: TelemetrySample[] | null = null;
-                  let s2IsBool = false, s2IsEnum = false, s2Kind: 'bool' | 'enum' | 'num' = 'num';
+                  let s2IsBool = false,
+                    s2IsEnum = false,
+                    s2Kind: 'bool' | 'enum' | 'num' = 'num';
                   if (second) {
                     const t2 = devMeta?.series?.[second.key]?.samples;
-                    s2Samples = (t2 && t2.length > 0) ? t2 : [{ t: nowTs, y: encodeMetric(second.key, (d as any)[second.key]) }];
-                    s2IsBool = ['is_on','opened','motion_detected','muted'].includes(second.key);
+                    s2Samples =
+                      t2 && t2.length > 0
+                        ? t2
+                        : [{ t: nowTs, y: encodeMetric(second.key, (d as any)[second.key]) }];
+                    s2IsBool = ['is_on', 'opened', 'motion_detected', 'muted'].includes(second.key);
                     s2IsEnum = !!(ENUM_SERIES as any)[second.key];
                     s2Kind = s2IsBool ? 'bool' : s2IsEnum ? 'enum' : 'num';
                   }
                   let g2: TelemetrySample[] | null = null;
                   if (s2Samples) {
-                    g2 = aggregateSeries(s2Samples, { kind: s2Kind, enumKey: s2IsEnum ? second!.key : undefined, res: telemetryResolution });
+                    g2 = aggregateSeries(s2Samples, {
+                      kind: s2Kind,
+                      enumKey: s2IsEnum ? second!.key : undefined,
+                      res: telemetryResolution,
+                    });
                     if (g2.length < 2) {
-                      const raw = [...s2Samples].sort((a,b)=>a.t-b.t);
+                      const raw = [...s2Samples].sort((a, b) => a.t - b.t);
                       if (raw.length >= 2) g2 = raw.slice(-2);
-                      else if (raw.length === 1) g2 = [{ t: raw[0].t - Math.max(10000, bucketMsFor(telemetryResolution)/6), y: raw[0].y }, raw[0]];
+                      else if (raw.length === 1)
+                        g2 = [
+                          {
+                            t: raw[0].t - Math.max(10000, bucketMsFor(telemetryResolution) / 6),
+                            y: raw[0].y,
+                          },
+                          raw[0],
+                        ];
                     }
                   }
                   // Merge by bucket time
                   const times = new Set<number>(g1.map((p) => p.t));
                   if (g2) for (const p of g2) times.add(p.t);
-                  const sortedTimes = Array.from(times).sort((a,b)=>a-b);
-                  const map1 = new Map<number, number>(); g1.forEach((p)=>map1.set(p.t, p.y));
-                  const map2 = new Map<number, number>(); if (g2) g2.forEach((p)=>map2.set(p.t, p.y));
+                  const sortedTimes = Array.from(times).sort((a, b) => a - b);
+                  const map1 = new Map<number, number>();
+                  g1.forEach((p) => map1.set(p.t, p.y));
+                  const map2 = new Map<number, number>();
+                  if (g2) g2.forEach((p) => map2.set(p.t, p.y));
                   const data = sortedTimes.map((tval) => ({
                     t: ((): string => {
                       const dt = new Date(tval);
@@ -1167,27 +1283,60 @@ export default function HomeAssistantPanel() {
                   const latest = s1Samples[s1Samples.length - 1]?.y ?? 0;
                   const color = telemetryColors[d.id] || defaultTeleColor(d.id);
                   const color2 = defaultTeleColor(d.id + ':2');
-                  const domain1: any = s1IsBool ? [0, 1] : s1IsEnum ? [0, (ENUM_SERIES as any)[metric.key].length - 1] : ['auto', 'auto'];
-                  const domain2: any = second ? (s2IsBool ? [0,1] : s2IsEnum ? [0, (ENUM_SERIES as any)[second.key].length - 1] : ['auto','auto']) : undefined;
-                  const tickFmt1 = (v: any) => (s1IsBool || s1IsEnum) ? labelFromEncoded(metric.key, Number(v)) : String(v);
+                  const domain1: any = s1IsBool
+                    ? [0, 1]
+                    : s1IsEnum
+                      ? [0, (ENUM_SERIES as any)[metric.key].length - 1]
+                      : ['auto', 'auto'];
+                  const domain2: any = second
+                    ? s2IsBool
+                      ? [0, 1]
+                      : s2IsEnum
+                        ? [0, (ENUM_SERIES as any)[second.key].length - 1]
+                        : ['auto', 'auto']
+                    : undefined;
+                  const tickFmt1 = (v: any) =>
+                    s1IsBool || s1IsEnum ? labelFromEncoded(metric.key, Number(v)) : String(v);
                   const tickFmt2 = (v: any) => {
                     if (!second) return String(v);
-                    return (s2IsBool || s2IsEnum) ? labelFromEncoded(second.key, Number(v)) : String(v);
+                    return s2IsBool || s2IsEnum
+                      ? labelFromEncoded(second.key, Number(v))
+                      : String(v);
                   };
                   const tooltipFmt = (value: any, name: any, props: any) => {
                     const dk: string = props?.dataKey;
-                    if (dk === 'y2' && second) return [(s2IsBool || s2IsEnum) ? labelFromEncoded(second.key, Number(value)) : String(value), second.label];
-                    return [(s1IsBool || s1IsEnum) ? labelFromEncoded(metric.key, Number(value)) : String(value), metric.label];
+                    if (dk === 'y2' && second)
+                      return [
+                        s2IsBool || s2IsEnum
+                          ? labelFromEncoded(second.key, Number(value))
+                          : String(value),
+                        second.label,
+                      ];
+                    return [
+                      s1IsBool || s1IsEnum
+                        ? labelFromEncoded(metric.key, Number(value))
+                        : String(value),
+                      metric.label,
+                    ];
                   };
-                  const latestLabel = (s1IsBool || s1IsEnum) ? labelFromEncoded(metric.key, Number(latest)) : String(latest);
-                  const yWidth1 = s1IsEnum ? 64 : (s1IsBool ? 42 : 36);
-                  const yWidth2 = second ? (s2IsEnum ? 64 : (s2IsBool ? 42 : 40)) : 0;
+                  const latestLabel =
+                    s1IsBool || s1IsEnum
+                      ? labelFromEncoded(metric.key, Number(latest))
+                      : String(latest);
+                  const yWidth1 = s1IsEnum ? 64 : s1IsBool ? 42 : 36;
+                  const yWidth2 = second ? (s2IsEnum ? 64 : s2IsBool ? 42 : 40) : 0;
                   return (
-                    <div key={d.id} className="rounded-2xl bg-white/5 ring-1 ring-white/10 p-3 text-white/80">
+                    <div
+                      key={d.id}
+                      className="rounded-2xl bg-white/5 ring-1 ring-white/10 p-3 text-white/80"
+                    >
                       <div className="flex items-center justify-between mb-1">
                         <div className="text-sm">
                           <div className="font-medium text-white">{d.name}</div>
-                          <div className="text-white/60">{metric.label}{second ? ' + ' + second.label : ''}</div>
+                          <div className="text-white/60">
+                            {metric.label}
+                            {second ? ' + ' + second.label : ''}
+                          </div>
                         </div>
                         <div className="text-right text-white/70 flex items-center gap-2">
                           <input
@@ -1195,7 +1344,9 @@ export default function HomeAssistantPanel() {
                             title="Cambiar color"
                             className="w-5 h-5 rounded-md border border-white/20 bg-transparent cursor-pointer"
                             value={color}
-                            onChange={(e) => setTelemetryColors((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                            onChange={(e) =>
+                              setTelemetryColors((prev) => ({ ...prev, [d.id]: e.target.value }))
+                            }
                           />
                           <div className="text-lg font-semibold text-white">{latestLabel}</div>
                         </div>
@@ -1216,19 +1367,56 @@ export default function HomeAssistantPanel() {
                               )}
                             </defs>
                             <XAxis dataKey="t" hide />
-                            <YAxis tick={{ fill: '#CBD5E1' }} stroke="#64748B" width={yWidth1} domain={domain1} allowDecimals={!s1IsBool && !s1IsEnum} tickFormatter={tickFmt1} />
+                            <YAxis
+                              tick={{ fill: '#CBD5E1' }}
+                              stroke="#64748B"
+                              width={yWidth1}
+                              domain={domain1}
+                              allowDecimals={!s1IsBool && !s1IsEnum}
+                              tickFormatter={tickFmt1}
+                            />
                             {second && (
-                              <YAxis yAxisId="R" orientation="right" tick={{ fill: '#CBD5E1' }} stroke="#64748B" width={yWidth2} domain={domain2 as any} allowDecimals={!s2IsBool && !s2IsEnum} tickFormatter={tickFmt2} />
+                              <YAxis
+                                yAxisId="R"
+                                orientation="right"
+                                tick={{ fill: '#CBD5E1' }}
+                                stroke="#64748B"
+                                width={yWidth2}
+                                domain={domain2 as any}
+                                allowDecimals={!s2IsBool && !s2IsEnum}
+                                tickFormatter={tickFmt2}
+                              />
                             )}
                             <Tooltip
-                              contentStyle={{ background: 'rgba(17, 24, 39, 0.85)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12 }}
+                              contentStyle={{
+                                background: 'rgba(17, 24, 39, 0.85)',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: 12,
+                              }}
                               labelStyle={{ color: '#E2E8F0' }}
                               itemStyle={{ color: '#E2E8F0' }}
                               formatter={tooltipFmt as any}
                             />
-                            <Area type="monotone" dataKey="y" name={metric.label} stroke={color} fill={`url(#tele-${d.id})`} strokeWidth={2} connectNulls />
+                            <Area
+                              type="monotone"
+                              dataKey="y"
+                              name={metric.label}
+                              stroke={color}
+                              fill={`url(#tele-${d.id})`}
+                              strokeWidth={2}
+                              connectNulls
+                            />
                             {second && (
-                              <Area type="monotone" dataKey="y2" yAxisId="R" name={second.label} stroke={color2} fill={`url(#tele-${d.id}-2)`} strokeWidth={2} connectNulls />
+                              <Area
+                                type="monotone"
+                                dataKey="y2"
+                                yAxisId="R"
+                                name={second.label}
+                                stroke={color2}
+                                fill={`url(#tele-${d.id}-2)`}
+                                strokeWidth={2}
+                                connectNulls
+                              />
                             )}
                           </AreaChart>
                         </ResponsiveContainer>
@@ -1240,7 +1428,12 @@ export default function HomeAssistantPanel() {
             </div>
           )}
           <div
-            style={{ transform: `scale(${zoom})`, transformOrigin: '0 0', width: `${100 / zoom}%`, display: telemetryMode ? 'none' : undefined }}
+            style={{
+              transform: `scale(${zoom})`,
+              transformOrigin: '0 0',
+              width: `${100 / zoom}%`,
+              display: telemetryMode ? 'none' : undefined,
+            }}
           >
             {/* Reorderable + resizable dashboard grid */}
             <div
@@ -1386,9 +1579,9 @@ export default function HomeAssistantPanel() {
                             Ampliar
                           </button>
                         </div>
-                    <div className="mt-2 h-[calc(100%-2rem)]" style={{ minHeight: 220 }}>
-                      {history ? (
-                        <ResponsiveContainer width="100%" height="100%">
+                        <div className="mt-2 h-[calc(100%-2rem)]" style={{ minHeight: 220 }}>
+                          {history ? (
+                            <ResponsiveContainer width="100%" height="100%">
                               <AreaChart
                                 data={history.map((p) => ({
                                   t: p.time.slice(11, 16),
@@ -1489,8 +1682,12 @@ export default function HomeAssistantPanel() {
                                     .filter((d) => d.type === 'light_bulb' && !d.is_on)
                                     .map((d) => powerDevice(d.id, 'on'))
                                 );
-                            const devs = await listDevices();
-                            setDevices(Array.isArray(devs) && devs.length > 0 ? withOverrides(devs) : seedSimDevices());
+                                const devs = await listDevices();
+                                setDevices(
+                                  Array.isArray(devs) && devs.length > 0
+                                    ? withOverrides(devs)
+                                    : seedSimDevices()
+                                );
                               } catch {}
                             }}
                           />
@@ -1504,8 +1701,12 @@ export default function HomeAssistantPanel() {
                                     .filter((d) => d.type === 'light_bulb' && d.is_on)
                                     .map((d) => powerDevice(d.id, 'off'))
                                 );
-                            const devs = await listDevices();
-                            setDevices(Array.isArray(devs) && devs.length > 0 ? withOverrides(devs) : seedSimDevices());
+                                const devs = await listDevices();
+                                setDevices(
+                                  Array.isArray(devs) && devs.length > 0
+                                    ? withOverrides(devs)
+                                    : seedSimDevices()
+                                );
                               } catch {}
                             }}
                           />
@@ -1519,8 +1720,8 @@ export default function HomeAssistantPanel() {
                                     .filter((d) => d.type === 'smart_plug')
                                     .map((d) => powerDevice(d.id, 'toggle'))
                                 );
-                            const devs = await listDevices();
-                            setDevices(withOverrides(devs));
+                                const devs = await listDevices();
+                                setDevices(withOverrides(devs));
                               } catch {}
                             }}
                           />
@@ -1776,7 +1977,9 @@ export default function HomeAssistantPanel() {
                       );
                       const devs = await listDevices();
                       setDevices(devs?.length ? withOverrides(devs) : seedSimDevices());
-                    } catch { setDevices(seedSimDevices()); }
+                    } catch {
+                      setDevices(seedSimDevices());
+                    }
                   }}
                 />
                 <ActionCard
@@ -1792,7 +1995,9 @@ export default function HomeAssistantPanel() {
                       );
                       const devs = await listDevices();
                       setDevices(devs?.length ? withOverrides(devs) : seedSimDevices());
-                    } catch { setDevices(seedSimDevices()); }
+                    } catch {
+                      setDevices(seedSimDevices());
+                    }
                   }}
                 />
                 <ActionCard
@@ -1808,7 +2013,9 @@ export default function HomeAssistantPanel() {
                       );
                       const devs = await listDevices();
                       setDevices(devs?.length ? withOverrides(devs) : seedSimDevices());
-                    } catch { setDevices(seedSimDevices()); }
+                    } catch {
+                      setDevices(seedSimDevices());
+                    }
                   }}
                 />
               </div>
@@ -1867,7 +2074,9 @@ export default function HomeAssistantPanel() {
                       <DeviceCard
                         d={d}
                         onOpen={() => setEditing(d)}
-                        onChanged={(next) => setDevices((prev) => prev.map((p) => (p.id === next.id ? next : p)))}
+                        onChanged={(next) =>
+                          setDevices((prev) => prev.map((p) => (p.id === next.id ? next : p)))
+                        }
                       />
                     </div>
                   ))}
@@ -1884,7 +2093,10 @@ export default function HomeAssistantPanel() {
               <div
                 ref={devGridRef}
                 className="grid grid-flow-dense gap-3"
-                style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`, gridAutoRows: `${rowUnit}px` }}
+                style={{
+                  gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
+                  gridAutoRows: `${rowUnit}px`,
+                }}
               >
                 {sortedDevices.map((d) => {
                   const sid = String(d.id);
@@ -1898,12 +2110,17 @@ export default function HomeAssistantPanel() {
                       onDrop={() => onDeviceDrop(sid)}
                       onDragEnd={() => setDragDevice(null)}
                       className="relative"
-                      style={{ gridColumn: `span ${Math.max(3, Math.min(gridCols, Math.round(sz.w)))}`, gridRow: `span ${Math.max(3, Math.round(sz.h))}` }}
+                      style={{
+                        gridColumn: `span ${Math.max(3, Math.min(gridCols, Math.round(sz.w)))}`,
+                        gridRow: `span ${Math.max(3, Math.round(sz.h))}`,
+                      }}
                     >
                       <DeviceCard
                         d={d}
                         onOpen={() => setEditing(d)}
-                        onChanged={(next) => setDevices((prev) => prev.map((p) => (p.id === next.id ? next : p)))}
+                        onChanged={(next) =>
+                          setDevices((prev) => prev.map((p) => (p.id === next.id ? next : p)))
+                        }
                       />
                       <div
                         className="absolute right-1 bottom-1 w-3 h-3 rounded-sm bg-white/70 cursor-se-resize opacity-80"
@@ -1914,7 +2131,9 @@ export default function HomeAssistantPanel() {
                   );
                 })}
                 {sortedDevices.length === 0 && (
-                  <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-4 text-white/60">Sin dispositivos</div>
+                  <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-4 text-white/60">
+                    Sin dispositivos
+                  </div>
                 )}
               </div>
             </div>
@@ -1927,14 +2146,16 @@ export default function HomeAssistantPanel() {
             <div className="rounded-2xl bg-white/5 ring-1 ring-white/10 p-2 md:p-3 text-white/80">
               <div className="flex flex-wrap items-center justify-center gap-2">
                 <span className="text-white/60 text-sm mr-1">Resolucion:</span>
-                {([
-                  { key: '1m', label: '1 min' },
-                  { key: '5m', label: '5 min' },
-                  { key: '20m', label: '20 min' },
-                  { key: '30m', label: '30 min' },
-                  { key: '1h', label: '1 h' },
-                  { key: '1d', label: 'Dias' },
-                ] as { key: TeleRes; label: string }[]).map((opt) => (
+                {(
+                  [
+                    { key: '1m', label: '1 min' },
+                    { key: '5m', label: '5 min' },
+                    { key: '20m', label: '20 min' },
+                    { key: '30m', label: '30 min' },
+                    { key: '1h', label: '1 h' },
+                    { key: '1d', label: 'Dias' },
+                  ] as { key: TeleRes; label: string }[]
+                ).map((opt) => (
                   <button
                     key={opt.key}
                     onClick={() => setTelemetryResolution(opt.key)}
@@ -1951,7 +2172,10 @@ export default function HomeAssistantPanel() {
             </div>
           </div>
         )}
-        <div className="relative mx-auto max-w-[820px]" style={{ display: telemetryMode ? 'none' : undefined }}>
+        <div
+          className="relative mx-auto max-w-[820px]"
+          style={{ display: telemetryMode ? 'none' : undefined }}
+        >
           <div className="h-10 rounded-full bg-gradient-to-r from-white/5 via-white/8 to-white/5 ring-1 ring-white/10" />
           <button
             className="absolute left-1/2 -translate-x-1/2 -top-4 w-12 h-12 rounded-full grid place-items-center bg-[#8B3DFF] text-white shadow-[0_10px_40px_-10px_rgba(139,61,255,0.7)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#8B3DFF]/60 focus:ring-offset-[#070a14]"
@@ -2303,7 +2527,15 @@ function hexToRgb(hex: string): string {
 import { FaLightbulb, FaPlug, FaDoorOpen, FaChromecast, FaVolumeUp } from 'react-icons/fa';
 import { MdMotionPhotosOn, MdLan, MdHub, MdPower } from 'react-icons/md';
 
-function DeviceCard({ d, onOpen, onChanged }: { d: Device; onOpen: () => void; onChanged?: (next: Device) => void }) {
+function DeviceCard({
+  d,
+  onOpen,
+  onChanged,
+}: {
+  d: Device;
+  onOpen: () => void;
+  onChanged?: (next: Device) => void;
+}) {
   const btnRef = useRef<HTMLDivElement | null>(null);
   // Shims to avoid referencing parent state inside this child component
   // (real simulation/ticking lives in the parent component)
@@ -2321,7 +2553,10 @@ function DeviceCard({ d, onOpen, onChanged }: { d: Device; onOpen: () => void; o
   const [isCompact, setIsCompact] = useState(false);
   const [dims, setDims] = useState<{ w: number; h: number }>({ w: 320, h: 80 });
   const [local, setLocal] = useState<Device>({ ...d });
-  useEffect(() => setLocal({ ...d }), [d.id, d.is_on, (d as any).brightness, (d as any).volume, (d as any).target_c]);
+  useEffect(
+    () => setLocal({ ...d }),
+    [d.id, d.is_on, (d as any).brightness, (d as any).volume, (d as any).target_c]
+  );
   useEffect(() => {
     const el = btnRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
@@ -2349,16 +2584,82 @@ function DeviceCard({ d, onOpen, onChanged }: { d: Device; onOpen: () => void; o
   // Local simulated devices fallback (when microservice is down/empty)
   function seedSimDevices(): Device[] {
     return [
-      { id: 'sim-zigbee', name: 'Zigbee Coordinator', type: 'coordinator', is_on: true, connected_devices: 3, network_channel: 15 } as any,
-      { id: 'sim-zwave', name: 'Z-Wave Controller', type: 'controller', is_on: true, node_count: 5, region: 'EU' } as any,
-      { id: 'sim-aq-door', name: 'Aqara Door/Window', type: 'contact_sensor', is_on: true, opened: false } as any,
-      { id: 'sim-aq-motion', name: 'Aqara Motion', type: 'motion_sensor', is_on: true, motion_detected: false, occupancy_timeout_s: 60, lux: 50 } as any,
+      {
+        id: 'sim-zigbee',
+        name: 'Zigbee Coordinator',
+        type: 'coordinator',
+        is_on: true,
+        connected_devices: 3,
+        network_channel: 15,
+      } as any,
+      {
+        id: 'sim-zwave',
+        name: 'Z-Wave Controller',
+        type: 'controller',
+        is_on: true,
+        node_count: 5,
+        region: 'EU',
+      } as any,
+      {
+        id: 'sim-aq-door',
+        name: 'Aqara Door/Window',
+        type: 'contact_sensor',
+        is_on: true,
+        opened: false,
+      } as any,
+      {
+        id: 'sim-aq-motion',
+        name: 'Aqara Motion',
+        type: 'motion_sensor',
+        is_on: true,
+        motion_detected: false,
+        occupancy_timeout_s: 60,
+        lux: 50,
+      } as any,
       { id: 'sim-shelly', name: 'Shelly Plus 1', type: 'relay', is_on: true, power_w: 0 } as any,
-      { id: 'sim-kasa', name: 'TP-Link Kasa Plug', type: 'smart_plug', is_on: true, power_w: 5.0, voltage_v: 120.0 } as any,
-      { id: 'sim-hue', name: 'Philips Hue Bulb', type: 'light_bulb', is_on: true, brightness: 50, color_temp: 3000 } as any,
-      { id: 'sim-ecobee', name: 'Ecobee Thermostat', type: 'thermostat', is_on: true, hvac_mode: 'auto', current_c: 22.0, target_c: 22.0 } as any,
-      { id: 'sim-chromecast', name: 'Google Chromecast', type: 'chromecast', is_on: true, playback_state: 'idle', app_name: 'Idle', volume: 50 } as any,
-      { id: 'sim-sonos', name: 'Sonos Speaker', type: 'speaker', is_on: true, playback_state: 'stopped', volume: 30, muted: false } as any,
+      {
+        id: 'sim-kasa',
+        name: 'TP-Link Kasa Plug',
+        type: 'smart_plug',
+        is_on: true,
+        power_w: 5.0,
+        voltage_v: 120.0,
+      } as any,
+      {
+        id: 'sim-hue',
+        name: 'Philips Hue Bulb',
+        type: 'light_bulb',
+        is_on: true,
+        brightness: 50,
+        color_temp: 3000,
+      } as any,
+      {
+        id: 'sim-ecobee',
+        name: 'Ecobee Thermostat',
+        type: 'thermostat',
+        is_on: true,
+        hvac_mode: 'auto',
+        current_c: 22.0,
+        target_c: 22.0,
+      } as any,
+      {
+        id: 'sim-chromecast',
+        name: 'Google Chromecast',
+        type: 'chromecast',
+        is_on: true,
+        playback_state: 'idle',
+        app_name: 'Idle',
+        volume: 50,
+      } as any,
+      {
+        id: 'sim-sonos',
+        name: 'Sonos Speaker',
+        type: 'speaker',
+        is_on: true,
+        playback_state: 'stopped',
+        volume: 30,
+        muted: false,
+      } as any,
     ];
   }
 
@@ -2389,7 +2690,12 @@ function DeviceCard({ d, onOpen, onChanged }: { d: Device; onOpen: () => void; o
       const next: any = { ...d, last_seen: now };
       switch (t) {
         case 'light_bulb':
-          if (on) next.brightness = clamp(Math.round((next.brightness ?? 50) + (Math.random() * 10 - 5)), 0, 100);
+          if (on)
+            next.brightness = clamp(
+              Math.round((next.brightness ?? 50) + (Math.random() * 10 - 5)),
+              0,
+              100
+            );
           break;
         case 'smart_plug':
           next.power_w = on ? clamp((next.power_w ?? 0) + Math.random() * 5, 0, 100) : 0;
@@ -2416,23 +2722,38 @@ function DeviceCard({ d, onOpen, onChanged }: { d: Device; onOpen: () => void; o
             const delta = tgt - cur;
             next.current_c = Math.round((cur + clamp(delta * 0.1, -0.2, 0.2)) * 10) / 10;
           } else {
-            next.current_c = Math.round(((next.current_c ?? 22) + (Math.random() * 0.1 - 0.05)) * 10) / 10;
+            next.current_c =
+              Math.round(((next.current_c ?? 22) + (Math.random() * 0.1 - 0.05)) * 10) / 10;
           }
           break;
         case 'chromecast':
           if (on && Math.random() < 0.05) {
             next.playback_state = ['playing', 'paused', 'idle'][Math.floor(Math.random() * 3)];
-            next.app_name = next.playback_state === 'idle' ? 'Idle' : ['YouTube', 'Netflix', 'Spotify'][Math.floor(Math.random() * 3)];
+            next.app_name =
+              next.playback_state === 'idle'
+                ? 'Idle'
+                : ['YouTube', 'Netflix', 'Spotify'][Math.floor(Math.random() * 3)];
           }
           break;
         case 'speaker':
-          if (on && Math.random() < 0.05) next.playback_state = ['playing', 'paused', 'stopped'][Math.floor(Math.random() * 3)];
+          if (on && Math.random() < 0.05)
+            next.playback_state = ['playing', 'paused', 'stopped'][Math.floor(Math.random() * 3)];
           break;
         case 'coordinator':
-          if (on) next.connected_devices = clamp((next.connected_devices ?? 0) + Math.floor(Math.random() * 5) - 2, 0, 5000);
+          if (on)
+            next.connected_devices = clamp(
+              (next.connected_devices ?? 0) + Math.floor(Math.random() * 5) - 2,
+              0,
+              5000
+            );
           break;
         case 'controller':
-          if (on) next.node_count = clamp((next.node_count ?? 0) + Math.floor(Math.random() * 3) - 1, 0, 5000);
+          if (on)
+            next.node_count = clamp(
+              (next.node_count ?? 0) + Math.floor(Math.random() * 3) - 1,
+              0,
+              5000
+            );
           break;
       }
       return next as Device;
@@ -2441,16 +2762,81 @@ function DeviceCard({ d, onOpen, onChanged }: { d: Device; onOpen: () => void; o
   // Local simulated devices fallback (when microservice is down/empty)
   function seedSimDevices(): Device[] {
     return [
-      { id: 'sim-zigbee', name: 'Zigbee Coordinator', type: 'coordinator', is_on: true, connected_devices: 3, network_channel: 15 },
-      { id: 'sim-zwave', name: 'Z-Wave Controller', type: 'controller', is_on: true, node_count: 5, region: 'EU' },
-      { id: 'sim-aq-door', name: 'Aqara Door/Window', type: 'contact_sensor', is_on: true, opened: false },
-      { id: 'sim-aq-motion', name: 'Aqara Motion', type: 'motion_sensor', is_on: true, motion_detected: false, occupancy_timeout_s: 60 },
+      {
+        id: 'sim-zigbee',
+        name: 'Zigbee Coordinator',
+        type: 'coordinator',
+        is_on: true,
+        connected_devices: 3,
+        network_channel: 15,
+      },
+      {
+        id: 'sim-zwave',
+        name: 'Z-Wave Controller',
+        type: 'controller',
+        is_on: true,
+        node_count: 5,
+        region: 'EU',
+      },
+      {
+        id: 'sim-aq-door',
+        name: 'Aqara Door/Window',
+        type: 'contact_sensor',
+        is_on: true,
+        opened: false,
+      },
+      {
+        id: 'sim-aq-motion',
+        name: 'Aqara Motion',
+        type: 'motion_sensor',
+        is_on: true,
+        motion_detected: false,
+        occupancy_timeout_s: 60,
+      },
       { id: 'sim-shelly', name: 'Shelly Plus 1', type: 'relay', is_on: true, power_w: 0 },
-      { id: 'sim-kasa', name: 'TP-Link Kasa Plug', type: 'smart_plug', is_on: true, power_w: 5.0, voltage_v: 120.0 },
-      { id: 'sim-hue', name: 'Philips Hue Bulb', type: 'light_bulb', is_on: true, brightness: 50, color_temp: 3000 },
-      { id: 'sim-ecobee', name: 'Ecobee Thermostat', type: 'thermostat', is_on: true, hvac_mode: 'auto', current_c: 22.0, target_c: 22.0 },
-      { id: 'sim-chromecast', name: 'Google Chromecast', type: 'chromecast', is_on: true, playback_state: 'idle', app_name: 'Idle', volume: 50 },
-      { id: 'sim-sonos', name: 'Sonos Speaker', type: 'speaker', is_on: true, playback_state: 'stopped', volume: 30, muted: false },
+      {
+        id: 'sim-kasa',
+        name: 'TP-Link Kasa Plug',
+        type: 'smart_plug',
+        is_on: true,
+        power_w: 5.0,
+        voltage_v: 120.0,
+      },
+      {
+        id: 'sim-hue',
+        name: 'Philips Hue Bulb',
+        type: 'light_bulb',
+        is_on: true,
+        brightness: 50,
+        color_temp: 3000,
+      },
+      {
+        id: 'sim-ecobee',
+        name: 'Ecobee Thermostat',
+        type: 'thermostat',
+        is_on: true,
+        hvac_mode: 'auto',
+        current_c: 22.0,
+        target_c: 22.0,
+      },
+      {
+        id: 'sim-chromecast',
+        name: 'Google Chromecast',
+        type: 'chromecast',
+        is_on: true,
+        playback_state: 'idle',
+        app_name: 'Idle',
+        volume: 50,
+      },
+      {
+        id: 'sim-sonos',
+        name: 'Sonos Speaker',
+        type: 'speaker',
+        is_on: true,
+        playback_state: 'stopped',
+        volume: 30,
+        muted: false,
+      },
     ] as unknown as Device[];
   }
   const icon = (() => {
@@ -2548,15 +2934,22 @@ function DeviceCard({ d, onOpen, onChanged }: { d: Device; onOpen: () => void; o
   const toggleH = Math.round(26 * scale);
 
   const canToggle =
-    d.type === 'light_bulb' || d.type === 'smart_plug' || d.type === 'relay' || d.type === 'speaker';
+    d.type === 'light_bulb' ||
+    d.type === 'smart_plug' ||
+    d.type === 'relay' ||
+    d.type === 'speaker';
   const primaryValue = (() => {
     switch (d.type) {
       case 'light_bulb':
-        return (local.brightness != null ? `${local.brightness}%` : d.is_on ? 'On' : 'Off');
+        return local.brightness != null ? `${local.brightness}%` : d.is_on ? 'On' : 'Off';
       case 'smart_plug':
         return d.power_w != null ? `${d.power_w} W` : d.is_on ? 'On' : 'Off';
       case 'thermostat':
-        return local.target_c != null ? `${local.target_c} °C` : (d.current_c != null ? `${d.current_c} °C` : '—');
+        return local.target_c != null
+          ? `${local.target_c} °C`
+          : d.current_c != null
+            ? `${d.current_c} °C`
+            : '—';
       case 'chromecast':
         return d.playback_state ?? '—';
       case 'speaker':
@@ -2611,7 +3004,11 @@ function DeviceCard({ d, onOpen, onChanged }: { d: Device; onOpen: () => void; o
       case 'smart_plug':
         return current.power_w != null ? `${current.power_w} W` : isOn ? 'On' : 'Off';
       case 'thermostat':
-        return current.target_c != null ? `${current.target_c} C` : (current.current_c != null ? `${current.current_c} C` : '--');
+        return current.target_c != null
+          ? `${current.target_c} C`
+          : current.current_c != null
+            ? `${current.current_c} C`
+            : '--';
       case 'chromecast':
         return current.playback_state ?? '--';
       case 'speaker':
@@ -2635,10 +3032,12 @@ function DeviceCard({ d, onOpen, onChanged }: { d: Device; onOpen: () => void; o
     e.stopPropagation();
     try {
       // Optimistic UI: flip local is_on immediately
-      setLocal((prev) => ({ ...(prev as any), is_on: !(prev as any).is_on } as any));
+      setLocal((prev) => ({ ...(prev as any), is_on: !(prev as any).is_on }) as any);
       try {
         const res = await powerDevice(d.id, 'toggle');
-        try { localStorage.setItem(`aura:device:last:${d.id}`, JSON.stringify(res)); } catch {}
+        try {
+          localStorage.setItem(`aura:device:last:${d.id}`, JSON.stringify(res));
+        } catch {}
         onChanged?.(res);
       } catch {
         // Backend caído: actualizar visualmente también en la lista
@@ -2651,14 +3050,18 @@ function DeviceCard({ d, onOpen, onChanged }: { d: Device; onOpen: () => void; o
   const inlineTimer = useRef<number | null>(null);
   const [justSaved, setJustSaved] = useState(false);
   const scheduleInlineSave = (payload: Record<string, any>) => {
-    try { window.clearTimeout(inlineTimer.current as any); } catch {}
+    try {
+      window.clearTimeout(inlineTimer.current as any);
+    } catch {}
     inlineTimer.current = window.setTimeout(async () => {
       try {
         // optimistic merge for a snappier feel
-        setLocal((prev) => ({ ...(prev as any), ...(payload as any) } as any));
+        setLocal((prev) => ({ ...(prev as any), ...(payload as any) }) as any);
         const res = await updateDevice(d.id, payload);
         onChanged?.(res);
-        try { localStorage.setItem(`aura:device:last:${res.id}`, JSON.stringify(res)); } catch {}
+        try {
+          localStorage.setItem(`aura:device:last:${res.id}`, JSON.stringify(res));
+        } catch {}
         setJustSaved(true);
         window.setTimeout(() => setJustSaved(false), 800);
       } catch {
@@ -2680,7 +3083,12 @@ function DeviceCard({ d, onOpen, onChanged }: { d: Device; onOpen: () => void; o
     >
       <div
         className="rounded-lg grid place-items-center flex-shrink-0"
-        style={{ width: iconSize, height: iconSize, background: isOn ? tone.on : tone.off, color: tone.fg }}
+        style={{
+          width: iconSize,
+          height: iconSize,
+          background: isOn ? tone.on : tone.off,
+          color: tone.fg,
+        }}
       >
         {icon}
       </div>
@@ -2701,7 +3109,10 @@ function DeviceCard({ d, onOpen, onChanged }: { d: Device; onOpen: () => void; o
             )}
           </div>
           {!isCompact && (
-            <div className="text-white/60 truncate" style={{ fontSize: Math.max(11, Math.round(11 * scale)) }}>
+            <div
+              className="text-white/60 truncate"
+              style={{ fontSize: Math.max(11, Math.round(11 * scale)) }}
+            >
               {subtitle2}
             </div>
           )}
@@ -2785,7 +3196,9 @@ function DeviceEditModal({
       const res = await updateDevice(d.id, payload);
       setD(res);
       onChanged(res);
-      try { localStorage.setItem(`aura:device:last:${res.id}`, JSON.stringify(res)); } catch {}
+      try {
+        localStorage.setItem(`aura:device:last:${res.id}`, JSON.stringify(res));
+      } catch {}
     } catch (e) {
       console.error(e);
     } finally {
@@ -2799,7 +3212,9 @@ function DeviceEditModal({
       const res = await powerDevice(d.id, action);
       setD(res);
       onChanged(res);
-      try { localStorage.setItem(`aura:device:last:${res.id}`, JSON.stringify(res)); } catch {}
+      try {
+        localStorage.setItem(`aura:device:last:${res.id}`, JSON.stringify(res));
+      } catch {}
     } catch (e) {
       console.error(e);
     } finally {
@@ -2883,7 +3298,9 @@ function DeviceEditModal({
   // Debounced autosave helper for modal controls
   const saveTimer = useRef<number | null>(null);
   const scheduleSave = (payload: Record<string, any>) => {
-    try { if (saveTimer.current) window.clearTimeout(saveTimer.current); } catch {}
+    try {
+      if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    } catch {}
     saveTimer.current = window.setTimeout(() => {
       save(payload);
     }, 400);
@@ -2910,7 +3327,12 @@ function DeviceEditModal({
                 const rgb = `rgb(${mix.r}, ${mix.g}, ${mix.b})`;
                 const bright = Math.max(0.05, Math.min(1, Number(d.brightness ?? 0) / 100));
                 return (
-                  <div className="relative w-28 h-48 rounded-3xl overflow-hidden ring-1 ring-white/10" style={{ background: `linear-gradient(180deg, ${rgb} ${Math.round(bright*100)}%, rgba(255,255,255,0.04))` }}>
+                  <div
+                    className="relative w-28 h-48 rounded-3xl overflow-hidden ring-1 ring-white/10"
+                    style={{
+                      background: `linear-gradient(180deg, ${rgb} ${Math.round(bright * 100)}%, rgba(255,255,255,0.04))`,
+                    }}
+                  >
                     <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-12 h-2 rounded-full bg-white/60 opacity-70" />
                   </div>
                 );
@@ -2921,7 +3343,10 @@ function DeviceEditModal({
                 value={Number(d.brightness ?? 0)}
                 min={0}
                 max={100}
-                onChange={(v) => { setD({ ...d, brightness: v }); scheduleSave({ brightness: v }); }}
+                onChange={(v) => {
+                  setD({ ...d, brightness: v });
+                  scheduleSave({ brightness: v });
+                }}
               />
             </Field>
             <Field label="Temperatura de color (K)">
@@ -2930,7 +3355,10 @@ function DeviceEditModal({
                 min={2000}
                 max={6500}
                 step={50}
-                onChange={(v) => { setD({ ...d, color_temp: v }); scheduleSave({ color_temp: v }); }}
+                onChange={(v) => {
+                  setD({ ...d, color_temp: v });
+                  scheduleSave({ color_temp: v });
+                }}
               />
             </Field>
             <Actions />
@@ -2948,7 +3376,11 @@ function DeviceEditModal({
           <>
             <Field label="Estado">
               <button
-                onClick={async () => { const next = !d.opened; setD({ ...d, opened: next }); await save({ opened: next }); }}
+                onClick={async () => {
+                  const next = !d.opened;
+                  setD({ ...d, opened: next });
+                  await save({ opened: next });
+                }}
                 className="px-3 h-9 rounded-md bg-white/10 hover:bg-white/20"
               >
                 {d.opened ? 'Cerrar' : 'Abrir'}
@@ -2965,7 +3397,10 @@ function DeviceEditModal({
                 value={Number(d.occupancy_timeout_s ?? 60)}
                 min={5}
                 max={600}
-                onChange={(v) => { setD({ ...d, occupancy_timeout_s: v }); scheduleSave({ occupancy_timeout_s: v }); }}
+                onChange={(v) => {
+                  setD({ ...d, occupancy_timeout_s: v });
+                  scheduleSave({ occupancy_timeout_s: v });
+                }}
               />
             </Field>
             <Actions />
@@ -2980,13 +3415,20 @@ function DeviceEditModal({
                 min={10}
                 max={30}
                 step={0.5}
-                onChange={(v) => { setD({ ...d, target_c: v }); scheduleSave({ target_c: v }); }}
+                onChange={(v) => {
+                  setD({ ...d, target_c: v });
+                  scheduleSave({ target_c: v });
+                }}
               />
             </Field>
             <Field label="Modo HVAC">
               <select
                 value={String(d.hvac_mode || 'auto')}
-                onChange={(e) => { const m=e.target.value; setD({ ...d, hvac_mode: m }); scheduleSave({ hvac_mode: m }); }}
+                onChange={(e) => {
+                  const m = e.target.value;
+                  setD({ ...d, hvac_mode: m });
+                  scheduleSave({ hvac_mode: m });
+                }}
                 className="w-full h-9 bg-white/5 border border-white/10 rounded-md px-2 text-white/80"
               >
                 {['off', 'heat', 'cool', 'auto'].map((m) => (
@@ -3008,7 +3450,10 @@ function DeviceEditModal({
                 min={0}
                 max={100}
                 step={1}
-                onChange={(v) => { setD({ ...d, volume: v }); scheduleSave({ volume: v }); }}
+                onChange={(v) => {
+                  setD({ ...d, volume: v });
+                  scheduleSave({ volume: v });
+                }}
               />
             </Field>
             <Field label="Aplicación">
@@ -3030,12 +3475,19 @@ function DeviceEditModal({
                 min={0}
                 max={100}
                 step={1}
-                onChange={(v) => { setD({ ...d, volume: v }); scheduleSave({ volume: v }); }}
+                onChange={(v) => {
+                  setD({ ...d, volume: v });
+                  scheduleSave({ volume: v });
+                }}
               />
             </Field>
             <Field label="Mute">
               <button
-                onClick={async () => { const next=!d.muted; setD({ ...d, muted: next }); await save({ muted: next }); }}
+                onClick={async () => {
+                  const next = !d.muted;
+                  setD({ ...d, muted: next });
+                  await save({ muted: next });
+                }}
                 className="px-3 h-9 rounded-md bg-white/10 hover:bg-white/20"
               >
                 {d.muted ? 'Quitar mute' : 'Poner mute'}
@@ -3121,27 +3573,21 @@ function SparkleIcon() {
     />
   );
 }
-  // Persist and hydrate per-device last state locally
-  const deviceLastKey = (id: string) => `aura:device:last:${id}`;
-  const mergeLocal = (d: Device): Device => {
-    try {
-      const raw = localStorage.getItem(deviceLastKey(String(d.id)));
-      if (!raw) return d;
-      const over = JSON.parse(raw);
-      return { ...d, ...over } as Device;
-    } catch {
-      return d;
-    }
-  };
-  const withOverrides = (arr: Device[]) => (Array.isArray(arr) ? arr.map(mergeLocal) : arr);
-  const persistLocal = (d: Device) => {
-    try { localStorage.setItem(deviceLastKey(String(d.id)), JSON.stringify(d)); } catch {}
-  };
-
-
-
-
-
-
-
-
+// Persist and hydrate per-device last state locally
+const deviceLastKey = (id: string) => `aura:device:last:${id}`;
+const mergeLocal = (d: Device): Device => {
+  try {
+    const raw = localStorage.getItem(deviceLastKey(String(d.id)));
+    if (!raw) return d;
+    const over = JSON.parse(raw);
+    return { ...d, ...over } as Device;
+  } catch {
+    return d;
+  }
+};
+const withOverrides = (arr: Device[]) => (Array.isArray(arr) ? arr.map(mergeLocal) : arr);
+const persistLocal = (d: Device) => {
+  try {
+    localStorage.setItem(deviceLastKey(String(d.id)), JSON.stringify(d));
+  } catch {}
+};

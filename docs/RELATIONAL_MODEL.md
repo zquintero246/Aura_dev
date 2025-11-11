@@ -85,3 +85,74 @@ Se usa para generar tokens API/long-lived.
 ### Documentación adicional
 - `docs/Readme.md` (pendiente) debe incluir referencias a los endpoints `/api/auth/*`, `/api/location`, etc., y explicar qué tablas tocan (e.g., registrar -> `users`, auth -> `sessions/personal_access_tokens`, location -> `homes`).  
 - Si se requiere un diagrama ER visual, se puede generar con herramientas como dbdiagram.io usando las tablas anteriores y exportar un diagrama para documentación interna.
+# Diagramas y gráfico relacional
+
+Usamos el siguiente ERD (PlantUML-like/mermaid) para representar las relaciones:
+
+```mermaid
+erDiagram
+    users {
+        bigint id PK
+        string name
+        string email
+        timestamp email_verified_at
+        string password
+        string remember_token
+        timestamp created_at
+        timestamp updated_at
+        string google_id
+        string facebook_id
+        string github_id
+        string gitlab_id
+        string bitbucket_id
+        string slack_id
+        string twitch_id
+        string twitter_openid_id
+        string linkedin_openid_id
+    }
+
+    homes {
+        varchar user_id PK
+        string city
+        string country
+        decimal lat
+        decimal lon
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    sessions {
+        string id PK
+        bigint user_id FK
+        string ip_address
+        text user_agent
+        longText payload
+        int last_activity
+    }
+
+    password_reset_tokens {
+        string email PK
+        string token
+        timestamp created_at
+    }
+
+    personal_access_tokens {
+        bigint id PK
+        string tokenable_type
+        bigint tokenable_id
+        string name
+        string token
+        text abilities
+        timestamp last_used_at
+        timestamp expires_at
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    users ||--|| homes : has
+    users ||--o{ sessions : owns
+    users ||--o{ personal_access_tokens : issues
+    users ||--|| password_reset_tokens : resets
+```
+
+El diagrama puede renderizarse con mermaid (`erDiagram`) para obtener cajas con columnas PK/FK y líneas. El archivo incluye también los detalles de cada columna.

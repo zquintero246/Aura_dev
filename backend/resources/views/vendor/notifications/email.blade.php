@@ -16,7 +16,7 @@
                     {{-- LOGO --}}
                     <tr>
                         <td align="center" style="padding-bottom:24px;">
-                            <img src="https://i.postimg.cc/SKkn28Vc/Logo-debajo-aura.png" alt="Aura" width="72"
+                            <img src="https://i.ibb.co/mrqd4Fkj/Logo-debajo-aura.png" alt="Aura" width="72"
                                 height="auto" style="display:block; margin:0 auto;">
                         </td>
                     </tr>
@@ -43,7 +43,11 @@
                         <tr>
                             <td align="center" style="padding:32px 0;">
                                 @php
-                                    $overrideUrl = preg_replace('/https?:\/\/[^\/]+/', config('app.verification_url', $actionUrl), $actionUrl);
+                                    $overrideUrl = preg_replace(
+                                        '/https?:\/\/[^\/]+/',
+                                        config('app.verification_url', $actionUrl),
+                                        $actionUrl,
+                                    );
                                 @endphp
                                 <a href="{{ $overrideUrl }}" target="_blank" rel="noopener"
                                     style="display:inline-block; background:linear-gradient(90deg,#CA5CF5 0%,#7405B4 100%); color:#fff; text-decoration:none; font-weight:600; font-size:15px; padding:14px 36px; border-radius:14px; box-shadow:0 4px 20px rgba(116,5,180,0.4);">

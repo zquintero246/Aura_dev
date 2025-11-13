@@ -60,7 +60,7 @@ const FIELD_DEFS: FieldDefinition[] = [
   {
     key: 'country',
     label: 'País',
-    placeholder: 'Selecciona un país',
+    placeholder: 'Registra tu país en "HomeAssistant"',
     type: 'select',
     options: COUNTRY_OPTIONS,
     disabled: true,
@@ -76,7 +76,7 @@ const FIELD_DEFS: FieldDefinition[] = [
   {
     key: 'timezone',
     label: 'Zona horaria',
-    placeholder: 'Selecciona la zona horaria',
+    placeholder: '--',
     type: 'select',
     options: TIMEZONE_OPTIONS,
     disabled: true,
@@ -321,13 +321,13 @@ export default function ProfilePanel({ name, email, id, avatarUrl, onProfileChan
                         {field.label}
                       </div>
                       {isSelect ? (
-                      <select
-                        value={value}
-                        onChange={(event) => handleChangeField(field.key, event.target.value)}
-                        disabled={field.disabled}
-                        className={`${controlClasses} appearance-none bg-no-repeat pr-4 ${field.disabled ? 'opacity-80' : ''}`}
-                        style={{ backgroundImage: 'none' }}
-                      >
+                        <select
+                          value={value}
+                          onChange={(event) => handleChangeField(field.key, event.target.value)}
+                          disabled={field.disabled}
+                          className={`${controlClasses} appearance-none bg-no-repeat pr-4 ${field.disabled ? 'opacity-80' : ''}`}
+                          style={{ backgroundImage: 'none' }}
+                        >
                           {field.placeholder && (
                             <option value="" disabled>
                               {field.placeholder}

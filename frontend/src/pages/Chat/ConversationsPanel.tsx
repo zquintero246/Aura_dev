@@ -3,12 +3,9 @@ import React from 'react';
 export type Conversation = {
   id: string;
   title: string;
-  pinned?: boolean;
 };
 
 type Props = {
-  /** Conversaciones ancladas */
-  pinned: Conversation[];
   /** Conversaciones recientes */
   recent: Conversation[];
   /** QuǸ item estǭ seleccionado para pintar el estado activo */
@@ -23,7 +20,6 @@ type Props = {
   railWidth?: number;
   /** Actualizar título desde el ChatPanel */
   onUpdateTitle?: (id: string, title: string) => void;
-  onTogglePin?: (id: string, nextPinned: boolean) => void;
   /** Borrar conversación */
   onDelete?: (id: string) => void;
   /** Renombrar conversación */
@@ -36,14 +32,12 @@ type Props = {
  */
 
 const ConversationsPanel: React.FC<Props> = ({
-  pinned,
   recent,
   selectedId,
   onSearch,
   onSelect,
   onCreate,
   railWidth = 72,
-  onTogglePin,
   onDelete,
   onMenuRename,
 }) => {
@@ -97,26 +91,6 @@ const ConversationsPanel: React.FC<Props> = ({
 
       {/* LISTA SCROLLABLE */}
       <div className="flex flex-col h-[calc(100vh-110px)] overflow-y-auto">
-        {/* PINNED */}
-        <Section title="ANCLADOS">
-          {pinned.length === 0 ? (
-            <EmptyRow text="Sin anclados por ahora" />
-          ) : (
-            pinned.map((c) => (
-            <Row
-              key={c.id}
-              active={c.id === selectedId}
-              label={c.title}
-              pinned
-              onClick={() => onSelect?.(c.id)}
-              onMenuPinToggle={() => onTogglePin?.(c.id, false)}
-              onMenuDelete={() => onDelete?.(c.id)}
-              onMenuRename={() => onMenuRename?.(c.id)}
-            />
-          ))
-          )}
-        </Section>
-
         {/* RECENTES */}
         <Section
           title="RECIENTES"
@@ -142,7 +116,6 @@ const ConversationsPanel: React.FC<Props> = ({
               active={c.id === selectedId}
               label={c.title}
               onClick={() => onSelect?.(c.id)}
-              onMenuPinToggle={() => onTogglePin?.(c.id, true)}
               onMenuDelete={() => onDelete?.(c.id)}
               onMenuRename={() => onMenuRename?.(c.id)}
             />
@@ -183,17 +156,13 @@ function Section({
 function Row({
   label,
   active,
-  pinned,
   onClick,
-  onMenuPinToggle,
   onMenuDelete,
   onMenuRename,
 }: {
   label: string;
   active?: boolean;
-  pinned?: boolean;
   onClick?: () => void;
-  onMenuPinToggle?: () => void;
   onMenuDelete?: () => void;
   onMenuRename?: () => void;
 }) {
@@ -223,16 +192,6 @@ function Row({
           </button>
           {open && (
             <div className="absolute right-0 mt-1 min-w-[160px] rounded-md bg-[#111626] ring-1 ring-white/10 shadow-lg z-10">
-            <button
-              className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 text-white/80"
-              onClick={() => {
-                setOpen(false);
-                onMenuPinToggle?.();
-              }}
-            >
-              {pinned ? 'Desanclar' : 'Anclar'} conversación
-            </button>
-            <div className="h-px bg-white/10 mx-1" />
             <button
               className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 text-white/80"
               onClick={() => {

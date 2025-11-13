@@ -42,7 +42,6 @@ export default function AppLayout() {
   const [bootStage, setBootStage] = useState<'loading' | 'transition' | 'done'>('loading');
 
   // Conversations state (no demos)
-  const [pinned, setPinned] = useState<Conversation[]>([]);
   const [recent, setRecent] = useState<Conversation[]>([]);
   const [deleteModal, setDeleteModal] = useState<{ id: string; title?: string } | null>(null);
   const [titlePromptState, setTitlePromptState] = useState<TitlePromptState | null>(null);
@@ -82,7 +81,7 @@ export default function AppLayout() {
 
   const handleRequestRename = (id: string) => {
     if (titlePromptBusy) return;
-    const candidate = pinned.find((c) => c.id === id) || recent.find((c) => c.id === id);
+    const candidate = recent.find((c) => c.id === id);
     setTitlePromptState({
       mode: 'rename',
       targetId: id,
@@ -110,7 +109,6 @@ export default function AppLayout() {
 
   const handleChatTitleChange = (id: string, newTitle: string) => {
     const normalized = normalizeAutoTitle(newTitle);
-    setPinned((prev) => prev.map((c) => (c.id === id ? { ...c, title: normalized } : c)));
     setRecent((prev) => prev.map((c) => (c.id === id ? { ...c, title: normalized } : c)));
   };
 
@@ -165,51 +163,34 @@ export default function AppLayout() {
     }
   };
 
-  // Pin/unpin with limit 3
-  const handleTogglePin = (id: string, nextPinned: boolean) => {
-    if (nextPinned) {
-      if (pinned.length >= 3) {
-        try {
-          window.alert('Solo puedes anclar hasta 3 conversaciones');
-        } catch {}
-        return;
-      }
-      const item = recent.find((c) => c.id === id);
-      if (item && !pinned.find((p) => p.id === id)) {
-        setRecent((r) => r.filter((c) => c.id !== id));
-        setPinned((p) => [...p, { ...item, pinned: true }]);
-      }
-    } else {
-      const item = pinned.find((c) => c.id === id);
-      if (item) {
-        setPinned((p) => p.filter((c) => c.id !== id));
-        setRecent((r) => [{ ...item, pinned: false }, ...r.filter((c) => c.id !== id)]);
-      }
-    }
-  };
-
   const activeChat =
     (selection?.type === 'chat' &&
-      (pinned.find((c) => c.id === selection.id) || recent.find((c) => c.id === selection.id))) ||
+      recent.find((c) => c.id === selection.id)) ||
     null;
 
   const removeConversationLocally = useCallback(
     (id: string) => {
       if (!id) return;
       const wasActive = selection?.type === 'chat' && selection.id === id;
-      setPinned((p) => p.filter((c) => c.id !== id));
-      setRecent((r) => r.filter((c) => c.id !== id));
-      if (wasActive) {
-        const next = pinned.find((c) => c.id !== id) || recent.find((c) => c.id !== id) || null;
-        setSelection(next ? { type: 'chat', id: next.id } : null);
+      setRecent((r) => {
+        const updated = r.filter((c) => c.id !== id);
+        if (wasActive) {
+          const next = updated[0] || null;
+          setSelection(next ? { type: 'chat', id: next.id } : null);
+        }
+        return updated;
+      });
+      if (!wasActive) {
+        // Ensure selection doesn't point to deleted ID when not active
+        setSelection((sel) => (sel?.type === 'chat' && sel.id === id ? null : sel));
       }
     },
-    [selection, pinned, recent]
+    [selection]
   );
 
   const handleDeleteChat = (id: string) => {
     if (!id) return;
-    const candidate = pinned.find((c) => c.id === id) || recent.find((c) => c.id === id);
+    const candidate = recent.find((c) => c.id === id);
     setDeleteModal({ id, title: candidate?.title });
   };
 
@@ -318,7 +299,6 @@ export default function AppLayout() {
       // Avoid double-running during initial bootstrap transition
       if (bootStage !== 'done') return;
       // Clear UI state to avoid showing previous user's data
-      setPinned([]);
       setRecent([]);
       setSelection(null);
       if (!user?.id) return;
@@ -336,9 +316,6 @@ export default function AppLayout() {
     const handler = (e: any) => {
       const { tempId, newId, title } = e?.detail || {};
       if (!tempId || !newId) return;
-      setPinned((p) =>
-        p.map((c) => (c.id === tempId ? { ...c, id: newId, title: title || c.title } : c))
-      );
       setRecent((r) => {
         const mapped = r.map((c) =>
           c.id === tempId ? { ...c, id: newId, title: title || c.title } : c
@@ -461,15 +438,13 @@ export default function AppLayout() {
         />
 
         {activeRail === 'chats' && conversationsOpen && (
-        <ConversationsPanel
-          railWidth={RAIL_W}
-          pinned={pinned}
-          recent={recent}
-          selectedId={selection?.type === 'chat' ? selection.id : undefined}
-          onSelect={(id) => setSelection({ type: 'chat', id })}
-          onCreate={handleCreateChat}
-          onSearch={handleSearchChat}
-            onTogglePin={handleTogglePin}
+          <ConversationsPanel
+            railWidth={RAIL_W}
+            recent={recent}
+            selectedId={selection?.type === 'chat' ? selection.id : undefined}
+            onSelect={(id) => setSelection({ type: 'chat', id })}
+            onCreate={handleCreateChat}
+            onSearch={handleSearchChat}
             onDelete={handleDeleteChat}
             onMenuRename={handleRequestRename}
           />

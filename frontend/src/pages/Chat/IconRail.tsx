@@ -27,6 +27,33 @@ const IconRailInline: React.FC<IconRailInlineProps> = ({
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [disabledNotice, setDisabledNotice] = useState<{
+    title: string;
+    description: string;
+  } | null>(null);
+
+  const handleSelect = (key: ItemKey) => {
+    if (key === 'group') {
+      setDisabledNotice({
+        title: 'Grupos',
+        description: 'Aura sigue desarrollando esta sección. Muy pronto podrás explorar los grupos.',
+      });
+      return;
+    }
+
+    if (key === 'project') {
+      setDisabledNotice({
+        title: 'Proyectos',
+        description:
+          'Aura aún está construyendo los proyectos. Muy pronto podrás crear y seguir tus iniciativas.',
+      });
+      return;
+    }
+
+    onSelect(key);
+  };
+
+  const closeNotice = () => setDisabledNotice(null);
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -43,127 +70,171 @@ const IconRailInline: React.FC<IconRailInlineProps> = ({
   }, []);
 
   return (
-    <aside
-      className="
+    <>
+      <aside
+        className="
     fixed left-0 top-0 z-30
     h-screen w-[72px]  /* altura completa */
     bg-[#070a14] text-white border-r border-white/10
     flex flex-col items-center py-4  /* columna */
   "
-    >
-      {/* --- TOP: logo + iconos --- */}
-      <div className="flex flex-col items-center gap-4">
-        <img src="/images/logo.svg" alt="Aura" className="mt-1 w-[38px] h-[38px]" />
+      >
+        {/* --- TOP: logo + iconos --- */}
+        <div className="flex flex-col items-center gap-4">
+          <img src="/images/logo.svg" alt="Aura" className="mt-1 w-[38px] h-[38px]" />
 
-        <div className="mt-2 flex flex-col items-center gap-3">
-          <RailIcon label="Chats" active={active === 'chats'} onClick={() => onSelect('chats')}>
-            <ChatsSVG />
-          </RailIcon>
-          <RailIcon label="Grupos" active={active === 'group'} onClick={() => onSelect('group')}>
-            <GroupSVG />
-          </RailIcon>
-          <RailIcon
-            label="Proyectos"
-            active={active === 'project'}
-            onClick={() => onSelect('project')}
-          >
-            <ProjectSVG />
-          </RailIcon>
-          <RailIcon
-            label="Mi casa"
-            active={active === 'telemetry'}
-            onClick={() => onSelect('telemetry')}
-          >
-            <MicasaSVG />
-          </RailIcon>
+          <div className="mt-2 flex flex-col items-center gap-3">
+            <RailIcon label="Chats" active={active === 'chats'} onClick={() => handleSelect('chats')}>
+              <ChatsSVG />
+            </RailIcon>
+            <RailIcon label="Grupos" active={active === 'group'} disabled onClick={() => handleSelect('group')}>
+              <GroupSVG />
+            </RailIcon>
+            <RailIcon
+              label="Proyectos"
+              active={active === 'project'}
+              disabled
+              onClick={() => handleSelect('project')}
+            >
+              <ProjectSVG />
+            </RailIcon>
+            <RailIcon
+              label="Mi casa"
+              active={active === 'telemetry'}
+              onClick={() => handleSelect('telemetry')}
+            >
+              <MicasaSVG />
+            </RailIcon>
+          </div>
         </div>
-      </div>
 
-      {/* --- BOTTOM: moon + perfil --- */}
-      <div className="mt-auto shrink-0 flex flex-col items-center gap-3 pb-2">
-        <RailIcon label="Cambiar tema" onClick={onToggleTheme}>
-          <MoonSVG />
-        </RailIcon>
+        {/* --- BOTTOM: moon + perfil --- */}
+        <div className="mt-auto shrink-0 flex flex-col items-center gap-3 pb-2">
+          <RailIcon label="Cambiar tema" onClick={onToggleTheme}>
+            <MoonSVG />
+          </RailIcon>
 
-        <div className="relative" ref={menuRef}>
-          <button
-            onClick={() => setMenuOpen((s) => !s)}
-            className="
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setMenuOpen((s) => !s)}
+              className="
         mb-1 w-[48px] h-[48px] rounded-full overflow-hidden
         ring-1 ring-white/10 hover:ring-white/20 transition
         focus:outline-none focus:ring-2 focus:ring-[#8B3DFF]
       "
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            aria-label={userName}
-            title={userName}
-          >
-            {avatarUrl ? (
-              <img src={avatarUrl} alt={userName} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full grid place-items-center bg-white/10 text-sm font-semibold">
-                {userName?.charAt(0)?.toUpperCase() || '?'}
-              </div>
-            )}
-          </button>
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label={userName}
+              title={userName}
+            >
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={userName} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full grid place-items-center bg-white/10 text-sm font-semibold">
+                  {userName?.charAt(0)?.toUpperCase() || '?'}
+                </div>
+              )}
+            </button>
 
-          {/* Dropdown */}
-          {menuOpen && (
-            <div
-              role="menu"
-              className="
+            {/* Dropdown */}
+            {menuOpen && (
+              <div
+                role="menu"
+                className="
           absolute bottom-14 left-0 w-[220px]
           rounded-2xl border border-white/15
           backdrop-blur
           shadow-[0_10px_40px_-10px_rgba(0,0,0,0.6)]
           p-2
         "
-            >
-              <DropdownItem
-                icon={<UserIcon />}
-                label="Perfil"
-                onClick={() => {
-                  try {
-                    onProfile?.();
-                  } finally {
-                    setMenuOpen(false);
-                  }
-                }}
-              />
+              >
+                <DropdownItem
+                  icon={<UserIcon />}
+                  label="Perfil"
+                  onClick={() => {
+                    try {
+                      onProfile?.();
+                    } finally {
+                      setMenuOpen(false);
+                    }
+                  }}
+                />
 
-              <div className="h-px bg-white/10 my-1" />
+                <div className="h-px bg-white/10 my-1" />
 
-              <DropdownItem
-                icon={<LogoutIcon />}
-                label="Cerrar sesión"
-                onClick={() => {
-                  try {
-                    onLogout?.();
-                  } finally {
-                    setMenuOpen(false);
-                  }
-                }}
-              />
-            </div>
-          )}
+                <DropdownItem
+                  icon={<LogoutIcon />}
+                  label="Cerrar sesión"
+                  onClick={() => {
+                    try {
+                      onLogout?.();
+                    } finally {
+                      setMenuOpen(false);
+                    }
+                  }}
+                />
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    </aside>
+      </aside>
+      {disabledNotice && <ComingSoonNotice notice={disabledNotice} onClose={closeNotice} />}
+    </>
   );
 };
 
 export default IconRailInline;
+
+function ComingSoonNotice({
+  notice,
+  onClose,
+}: {
+  notice: { title: string; description: string };
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center px-4">
+      <div
+        className="absolute inset-0 bg-black/60"
+        aria-hidden="true"
+        onClick={onClose}
+      />
+      <div
+        role="alertdialog"
+        aria-labelledby="coming-soon-title"
+        aria-describedby="coming-soon-description"
+        className="relative z-50 w-full max-w-sm rounded-2xl border border-white/20 bg-[#0b0f1b] p-6 text-center shadow-[0_30px_60px_-20px_rgba(0,0,0,0.9)]"
+      >
+        <p className="text-xs uppercase tracking-[0.3em] text-white/60">Muy pronto</p>
+        <h3 id="coming-soon-title" className="mt-2 text-lg font-semibold text-white">
+          {notice.title}
+        </h3>
+        <p id="coming-soon-description" className="mt-3 text-sm text-white/80">
+          {notice.description}
+        </p>
+        <button
+          onClick={onClose}
+          className="mt-6 inline-flex items-center justify-center rounded-full border border-white/10 bg-white/10 px-6 py-2 text-sm font-semibold text-white transition hover:border-white/30 hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-[#8B3DFF] focus:ring-offset-2 focus:ring-offset-black"
+        >
+          Entendido
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function RailIcon({
   children,
   label,
   active,
   onClick,
+  disabled,
 }: {
   children: React.ReactNode;
   label: string;
   active?: boolean;
   onClick?: () => void;
+  disabled?: boolean;
 }) {
   // clases por estado: si está activo, no aplicamos los :hover
   const colorClasses = active
@@ -172,6 +243,11 @@ function RailIcon({
     : // Inactivo: gris base y aclarar en hover
       '[&_circle]:fill-[#212529] group-hover:[&_circle]:fill-[#2a2f36] \
        [&_path]:fill-[#4B535B] group-hover:[&_path]:fill-[#EDEDEF]';
+  const cursorClasses = disabled
+    ? 'cursor-not-allowed opacity-70'
+    : active
+    ? 'cursor-default'
+    : 'hover:cursor-pointer';
 
   return (
     <button
@@ -179,11 +255,12 @@ function RailIcon({
       title={label}
       aria-label={label}
       aria-pressed={!!active}
+      aria-disabled={disabled}
       className={`
         group relative grid place-items-center
         w-[56px] h-[56px] rounded-full
         focus:outline-none focus:ring-0      /* ⬅️ sin aro morado */
-        ${active ? 'cursor-default' : 'hover:cursor-pointer'}
+        ${cursorClasses}
       `}
     >
       <div className={`[&_circle]:transition-colors [&_path]:transition-colors ${colorClasses}`}>

@@ -98,8 +98,6 @@ export default function ChatPanel({
     typeof conversationId === 'string' && conversationId.startsWith('tmp-');
 
   const settingsRef = useRef<HTMLDivElement | null>(null);
-  const themeTimerRef = useRef<number | null>(null);
-  const pendingThemeRef = useRef<ThemeSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [themeSettings, setThemeSettings] = useState<ThemeSettings>(() => ({
@@ -112,11 +110,6 @@ export default function ChatPanel({
       bubbleColor: conversation?.theme?.bubble_color ?? DEFAULT_BUBBLE_COLOR,
       backgroundColor: conversation?.theme?.background_color ?? DEFAULT_BACKGROUND_COLOR,
     });
-    pendingThemeRef.current = null;
-    if (themeTimerRef.current) {
-      window.clearTimeout(themeTimerRef.current);
-      themeTimerRef.current = null;
-    }
     setSettingsOpen(false);
   }, [conversation?.id, conversation?.theme?.bubble_color, conversation?.theme?.background_color]);
 
@@ -139,60 +132,6 @@ export default function ChatPanel({
       document.removeEventListener('keydown', handleDocumentKey);
     };
   }, [settingsOpen]);
-
-  const flushThemeUpdate = useCallback(
-    async (values: ThemeSettings) => {
-      if (!conversationId || isTempConversation) {
-        pendingThemeRef.current = values;
-        return;
-      }
-      try {
-        await updateConversation(conversationId, {
-          bubbleColor: values.bubbleColor,
-          backgroundColor: values.backgroundColor,
-        });
-        pendingThemeRef.current = null;
-      } catch (err) {
-        console.error('[ChatPanel] Failed to save theme update', err);
-      }
-    },
-    [conversationId, isTempConversation]
-  );
-
-  const scheduleThemeUpdate = useCallback(
-    (partial: Partial<ThemeSettings>) => {
-      setThemeSettings((prev) => {
-        const next = { ...prev, ...partial };
-        pendingThemeRef.current = next;
-        return next;
-      });
-      if (themeTimerRef.current) {
-        window.clearTimeout(themeTimerRef.current);
-      }
-      themeTimerRef.current = window.setTimeout(() => {
-        const pending = pendingThemeRef.current;
-        if (pending) {
-          flushThemeUpdate(pending);
-        }
-      }, 360);
-    },
-    [flushThemeUpdate]
-  );
-
-  useEffect(() => {
-    if (!conversationId || isTempConversation) return;
-    if (pendingThemeRef.current) {
-      flushThemeUpdate(pendingThemeRef.current);
-    }
-  }, [conversationId, isTempConversation, flushThemeUpdate]);
-
-  useEffect(() => {
-    return () => {
-      if (themeTimerRef.current) {
-        window.clearTimeout(themeTimerRef.current);
-      }
-    };
-  }, []);
 
   const bubbleTextColor = useMemo(
     () => getContrastColor(themeSettings.bubbleColor),
@@ -535,7 +474,7 @@ export default function ChatPanel({
                   className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/5 text-sm flex items-center gap-2"
                 >
                   <img src="/images/logo.svg" alt="AuraV1" className="w-5 h-5" />
-                  Aura V1
+                  Aura-1.7B
                 </button>
                 <div className="mx-2 my-1 h-px bg-white/10" />
                 <button
@@ -659,57 +598,6 @@ export default function ChatPanel({
                   <div className="flex items-center justify-between text-[13px] text-white/70">
                     <span>Creado</span>
                     <span className="text-right text-white/80">{conversationCreatedAtLabel}</span>
-                  </div>
-                  <div className="pt-3 border-t border-white/10 space-y-3">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.35em] text-white/50">
-                        <span>Color de burbuja</span>
-                        <span className="text-[10px]">
-                          {themeSettings.bubbleColor.toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="color"
-                          value={themeSettings.bubbleColor}
-                          onChange={(event) =>
-                            scheduleThemeUpdate({ bubbleColor: event.target.value })
-                          }
-                          className="h-10 w-10 rounded-full border-2 border-white/20 p-0"
-                        />
-                        <div className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm">
-                          <span className="block text-xs text-white/60">Vista previa</span>
-                          <span
-                            className="block h-2 rounded-full"
-                            style={{ backgroundColor: themeSettings.bubbleColor }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.35em] text-white/50">
-                        <span>Fondo</span>
-                        <span className="text-[10px]">
-                          {themeSettings.backgroundColor.toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="color"
-                          value={themeSettings.backgroundColor}
-                          onChange={(event) =>
-                            scheduleThemeUpdate({ backgroundColor: event.target.value })
-                          }
-                          className="h-10 w-10 rounded-full border-2 border-white/20 p-0"
-                        />
-                        <div
-                          className="flex-1 rounded-2xl border border-white/10 px-3 py-2 text-sm text-white/70"
-                          style={{ backgroundColor: themeSettings.backgroundColor }}
-                        >
-                          Aplicado
-                        </div>
-                      </div>
-                    </div>
                   </div>
                 </div>
               </div>

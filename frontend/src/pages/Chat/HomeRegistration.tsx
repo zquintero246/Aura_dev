@@ -138,21 +138,7 @@ export default function HomeRegistration({ userId, onDone }: Props) {
   };
 
   return (
-    <div className="w-full h-full grid grid-rows-[auto_1fr_auto]">
-      {/* Barra superior */}
-      <header className="px-4">
-        <div className="mt-1 h-14 rounded-2xl bg-white/5 ring-1 ring-white/10 flex items-center justify-between px-4 text-white/80">
-          <div className="font-medium tracking-wide">Configurar mi casa</div>
-          <div className="flex items-center gap-3">
-            <span className="hidden sm:inline text-sm text-white/70">{city || 'Ciudad'}</span>
-            <span className="w-6 h-6 rounded-full bg-white/10" aria-hidden />
-            <span className="w-6 h-6 rounded-full bg-white/10" aria-hidden />
-            <span className="w-6 h-6 rounded-full bg-white/10" aria-hidden />
-          </div>
-        </div>
-      </header>
-
-      {/* Contenido con mapa + formulario */}
+    <div className="w-full h-full">
       <section className="px-4 py-6 grid grid-cols-1 lg:grid-cols-[1.25fr_0.85fr] gap-6 items-stretch min-h-0">
         <div className="relative rounded-2xl ring-1 ring-white/10 bg-white/5 overflow-hidden">
           <WorldMap
@@ -244,23 +230,6 @@ export default function HomeRegistration({ userId, onDone }: Props) {
         </form>
       </section>
 
-      {/* Barra inferior */}
-      <footer className="px-4 pb-3">
-        <div className="relative mx-auto max-w-[820px]">
-          <div className="h-10 rounded-full bg-gradient-to-r from-white/5 via-white/8 to-white/5 ring-1 ring-white/10" />
-          <button className="absolute left-1/2 -translate-x-1/2 -top-4 w-12 h-12 rounded-full grid place-items-center bg-[#8B3DFF]" aria-label="Acción principal">
-            <SparkleIcon />
-          </button>
-        </div>
-      </footer>
     </div>
-  );
-}
-
-function SparkleIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-      <path d="M12 3l1.6 3.5L17 8l-3.4 1.5L12 13l-1.6-3.5L7 8l3.4-1.5L12 3z" fill="currentColor" />
-    </svg>
   );
 }

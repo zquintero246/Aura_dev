@@ -1,0 +1,240 @@
+import requests
+from flask import Flask, jsonify, request
+from services.azure_weather import (
+    get_air_quality,
+    get_current_conditions,
+    get_traffic_incidents
+)
+from services import db as dbsvc
+from devices import (
+    ZigbeeCoordinator,
+    ZWaveController,
+    AqaraDoorWindowSensor,
+    AqaraMotionSensor,
+    ShellyRelay,
+    TplinkKasaPlug,
+    PhilipsHueBulb,
+    EcobeeThermostat,
+    GoogleChromecast,
+    SonosSpeaker,
+)
+
+app = Flask(__name__)
+
+AZURE_KEY = "ALiJMCBbx5dzDWgHHKrAgTCchjUSKmAP10UmYlMvBqZn15dqwOEUJQQJ99BJACYeBjFa4UkmAAAgAZMP2Fii"
+
+
+# Inicializa SQLite y datos seed al importar el módulo (idempotente)
+try:
+    dbsvc.init_db()
+except Exception as _e:
+    # Evitar que un error al iniciar DB tumbe la app; logs en consola
+    print("DB init error:", _e)
+
+# En algunos entornos de despliegue, before_first_request puede no disparar
+# de inmediato. Lo conservamos como respaldo.
+def init():
+    try:
+        dbsvc.init_db()
+    except Exception as _e:
+        print("DB init (first request) error:", _e)
+
+
+@app.route('/', methods=['GET'])
+def index():
+    return jsonify({
+        "message": "IoT Weather & Traffic API is running",
+        "endpoints": [
+            "/api/devices",
+            "/api/devices/<id>",
+            "/api/devices/<id>/power",
+            "/api/devices/<id>/update",
+            "/api/devices/<id>/tick",
+            "/api/devices/tick_all",
+            "/api/geo/countries",
+            "/api/geo/cities?country=CO",
+            "/api/users/register",
+            "/api/users/<user_id>",
+            "/api/dashboard",
+        ],
+    })
+
+
+# --- Simulated devices registry ---
+DEVICES: dict[str, object] = {}
+
+
+def _ensure_devices():
+    if DEVICES:
+        return
+    items = [
+        ZigbeeCoordinator(),
+        ZWaveController(),
+        AqaraDoorWindowSensor(),
+        AqaraMotionSensor(),
+        ShellyRelay(),
+        TplinkKasaPlug(),
+        PhilipsHueBulb(),
+        EcobeeThermostat(),
+        GoogleChromecast(),
+        SonosSpeaker(),
+    ]
+    for d in items:
+        DEVICES[getattr(d, "id")] = d
+
+
+def _device_state(d) -> dict:
+    try:
+        return d.to_dict()
+    except Exception:
+        # Fallback: serialize public attrs
+        data = {k: v for k, v in d.__dict__.items() if not k.startswith("_")}
+        return data
+
+
+@app.route('/api/devices', methods=['GET'])
+def api_devices():
+    _ensure_devices()
+    return jsonify({"devices": [_device_state(d) for d in DEVICES.values()]})
+
+
+@app.route('/api/devices/<dev_id>', methods=['GET'])
+def api_device(dev_id):
+    _ensure_devices()
+    d = DEVICES.get(dev_id)
+    if not d:
+        return jsonify({"error": "Device not found"}), 404
+    return jsonify(_device_state(d))
+
+
+@app.route('/api/devices/<dev_id>/power', methods=['POST'])
+def api_device_power(dev_id):
+    _ensure_devices()
+    d = DEVICES.get(dev_id)
+    if not d:
+        return jsonify({"error": "Device not found"}), 404
+    action = (request.json or {}).get("action") if request.is_json else request.form.get("action")
+    if action == "on":
+        d.power_on()
+    elif action == "off":
+        d.power_off()
+    elif action == "toggle":
+        d.toggle()
+    else:
+        return jsonify({"error": "Invalid action. Use on/off/toggle"}), 400
+    return jsonify(_device_state(d))
+
+
+@app.route('/api/devices/<dev_id>/update', methods=['POST'])
+def api_device_update(dev_id):
+    import inspect
+    _ensure_devices()
+    d = DEVICES.get(dev_id)
+    if not d:
+        return jsonify({"error": "Device not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    # Filter kwargs that update_config supports
+    try:
+        sig = inspect.signature(d.update_config)
+        allowed = {k: v for k, v in payload.items() if k in sig.parameters}
+        d.update_config(**allowed)
+    except Exception as e:
+        return jsonify({"error": f"update_config failed: {e}"}), 400
+    return jsonify(_device_state(d))
+
+
+@app.route('/api/devices/<dev_id>/tick', methods=['POST'])
+def api_device_tick(dev_id):
+    _ensure_devices()
+    d = DEVICES.get(dev_id)
+    if not d:
+        return jsonify({"error": "Device not found"}), 404
+    d.simulate_tick()
+    return jsonify(_device_state(d))
+
+
+@app.route('/api/devices/tick_all', methods=['POST'])
+def api_devices_tick_all():
+    _ensure_devices()
+    for d in DEVICES.values():
+        d.simulate_tick()
+    return jsonify({"devices": [_device_state(d) for d in DEVICES.values()]})
+
+
+def reverse_geocode(lat, lon):
+    """Convierte coordenadas en ciudad y país usando Azure Maps."""
+    try:
+        url = f"https://atlas.microsoft.com/search/address/reverse/json"
+        params = {
+            "api-version": "1.0",
+            "subscription-key": AZURE_KEY,
+            "language": "es-ES",
+            "query": f"{lat},{lon}"
+        }
+        res = requests.get(url, params=params).json()
+        if res.get("addresses"):
+            addr = res["addresses"][0]["address"]
+            return {
+                "city": addr.get("municipality", "Desconocida"),
+                "country": addr.get("country", "Desconocido")
+            }
+    except Exception as e:
+        print("Reverse geocode error:", e)
+    return {"city": "Desconocida", "country": "Desconocido"}
+
+
+def geocode_city_country(city: str, country: str):
+    """Convierte ciudad + país en coordenadas usando Azure Maps."""
+    try:
+        url = f"https://atlas.microsoft.com/search/address/json"
+        params = {
+            "api-version": "1.0",
+            "subscription-key": AZURE_KEY,
+            "language": "es-ES",
+            "query": f"{city}, {country}"
+        }
+        res = requests.get(url, params=params).json()
+        if res.get("results"):
+            top = res["results"][0]
+            pos = top.get("position", {})
+            addr = top.get("address", {})
+            return {
+                "lat": pos.get("lat"),
+                "lon": pos.get("lon"),
+                "city": addr.get("municipality", city),
+                "country": addr.get("country", country)
+            }
+    except Exception as e:
+        print("Geocode error:", e)
+    return None
+
+
+def bbox_around(lat: float, lon: float, dlon: float = 0.3, dlat: float = 0.1) -> str:
+    """Crea un bbox simple alrededor de un punto para tráfico: lon_min,lat_min,lon_max,lat_max."""
+    try:
+        lat = float(lat)
+        lon = float(lon)
+        return f"{lon - dlon},{lat - dlat},{lon + dlon},{lat + dlat}"
+    except Exception:
+        # bbox por defecto (región de ejemplo) si algo falla
+        return "-73.2,7.0,-72.9,7.2"
+
+
+@app.route('/api/users/register', methods=['POST'])
+def register_user():
+    """Registra o actualiza la ubicación preferida de un usuario.
+    Body JSON: { user_id?: str, country: str, city: str }
+    """
+    data = request.get_json(silent=True) or {}
+    city = data.get("city")
+    country = data.get("country")
+    user_id = data.get("user_id")
+
+    if not city or not country:
+        return jsonify({"error": "city y country son requeridos"}), 400
+
+    geo = geocode_city_country(city, country)
+    if not geo or geo.get("lat") is None or geo.get("lon") is None:
+        return jsonify({"error": "No se pudo geocodificar la ciudad/país"}), 400
+
+    if not user_id:

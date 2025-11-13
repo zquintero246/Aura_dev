@@ -1,0 +1,1000 @@
+/**
+ * WhiteboardPanel
+ *
+ * Arquitectura
+ * - Núcleo de estado en useBoardStore (src/whiteboard/boardStore.ts) con historia (undo/redo) y persistencia localStorage.
+ * - Render basado en <svg> con viewBox controlado por la cámara para zoom/pan suaves.
+ * - Culling por viewport con SpatialGrid (src/whiteboard/spatial.ts) para hit-testing eficiente.
+ * - Exportadores puros a SVG/PNG (src/whiteboard/export.ts) sin dependencias pesadas.
+ *
+ * Decisiones clave
+ * - Sin libs grandes: todo el dibujo es SVG/canvas básico.
+ * - Acciones como mover/redimensionar/rotar hechas con refs + requestAnimationFrame para suavidad.
+ * - Herramientas simples: pointer, note, rect, ellipse, text, connector.
+ * - Conectores se anclan al centro de figuras (y aproximación a borde) y se actualizan al mover.
+ *
+ * Cómo extender
+ * - Añadir nuevas figuras: ampliar NodeShape.type y pintar en <Shape> y exportadores.
+ * - Colaboración realtime: sincronizar BoardState por WebSocket y reconciliar en store.
+ */
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useBoardStore } from '../../whiteboard/boardStore';
+import { __attach } from '../../whiteboard/api';
+import type { BoardState, Connector, NodeShape, ToolKey, Vec2 } from '../../whiteboard/types';
+import { SpatialGrid } from '../../whiteboard/spatial';
+import { exportPNG, exportSVG } from '../../whiteboard/export';
+
+type Props = { boardId: string };
+
+// exportados simples
+export type { Vec2, BoardState, NodeShape, Connector };
+
+export default function WhiteboardPanel({ boardId }: Props) {
+  const api = useBoardStore(boardId);
+  useEffect(() => {
+    __attach(api);
+    return () => __attach(null);
+  }, [api]);
+  const { state } = api;
+  const [tool, setTool] = useState<ToolKey>('pointer');
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const worldRef = useRef<SVGGElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; open: boolean } | null>(null);
+  const clipboardRef = useRef<string | null>(null);
+  const pasteCountRef = useRef(0);
+
+  // spatial grid for culling/hit-test
+  const grid = useMemo(() => new SpatialGrid(256), []);
+  useEffect(() => {
+    gridCleanup(grid);\r\n    for (const n of state.nodes) {\r\n      if (n.type === 'connector') continue;\r\n      const shape = n as any;\r\n      if (!shape?.position) { try { console.warn('Nodo sin posici�n al actualizar grid:', shape); } catch {} continue; }\r\n      grid.upsert(shape as NodeShape);\r\n    }
+  }, [grid, state.nodes]);
+
+  // non-passive wheel listener to allow preventDefault
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const dir = Math.sign(e.deltaY);
+      const factor = dir > 0 ? 0.9 : 1.1;
+      const next = state.camera.zoom * factor;
+      api.setZoomAt(next, { x: e.clientX, y: e.clientY }, svg.getBoundingClientRect());
+    };
+    svg.addEventListener('wheel', handler, { passive: false });
+    return () => svg.removeEventListener('wheel', handler);
+  }, [api, state.camera.zoom]);  // keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) api.redo();
+        else api.undo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        const selected = state.nodes.filter((n) => state.selection.includes(n.id));
+        const json = JSON.stringify(selected);
+        clipboardRef.current = json;
+        try { navigator.clipboard?.writeText(json).catch(() => {}); } catch {}
+        pasteCountRef.current = 0;
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x') {
+        const selected = state.nodes.filter((n) => state.selection.includes(n.id));
+        const json = JSON.stringify(selected);
+        clipboardRef.current = json;
+        try { navigator.clipboard?.writeText(json).catch(() => {}); } catch {}
+        api.deleteNodes(state.selection);
+        pasteCountRef.current = 0;
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+        const data = clipboardRef.current;
+        if (!data) return;
+        try {
+          const items = JSON.parse(data) as any[];
+          const idMap = new Map<string, string>();
+          const ts = Date.now();
+          const offset = 16 * (++pasteCountRef.current);
+          api.setState((s) => {
+            const clones = items.map((n) => {
+              const nid = crypto.randomUUID();
+              idMap.set(n.id, nid);
+              if (n.type === 'connector') {
+                const c = { ...n };
+                return {
+                  ...c,
+                  id: nid,
+                  position: { x: c.position.x + offset, y: c.position.y + offset },
+                  points: c.points.map((p: any) => ({ x: p.x + offset, y: p.y + offset })),
+                  createdAt: ts,
+                  updatedAt: ts,
+                  from: c.from ? { ...c.from, nodeId: idMap.get(c.from.nodeId) || c.from.nodeId } : undefined,
+                  to: c.to ? { ...c.to, nodeId: idMap.get(c.to.nodeId) || c.to.nodeId } : undefined,
+                } as Connector;
+              }
+              const d = { ...n } as NodeShape;
+              return {
+                ...d,
+                id: nid,
+                position: { x: d.position.x + offset, y: d.position.y + offset },
+                createdAt: ts,
+                updatedAt: ts,
+              } as NodeShape;
+            });
+            return { ...s, nodes: [...s.nodes, ...clones], selection: clones.map((c) => c.id) };
+          });
+        } catch {}
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        api.duplicateNodes(state.selection);
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.isContentEditable) return;
+        e.preventDefault();
+        api.deleteNodes(state.selection);
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        api.setSelection(state.nodes.map((n) => n.id));
+      } else if (e.key === 'Escape') {
+        api.setSelection([]);
+        setTool('pointer');
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [api, state.selection, state.nodes]);
+
+  // pointer state
+  const isSpace = useRef(false);
+  useEffect(() => {
+    const kd = (e: KeyboardEvent) => {
+      if (e.code === 'Space') isSpace.current = true;
+    };
+    const ku = (e: KeyboardEvent) => {
+      if (e.code === 'Space') isSpace.current = false;
+    };
+    window.addEventListener('keydown', kd);
+    window.addEventListener('keyup', ku);
+    return () => {
+      window.removeEventListener('keydown', kd);
+      window.removeEventListener('keyup', ku);
+    };
+  }, []);
+
+  // interactions
+  const dragRef = useRef<{
+    mode: 'none' | 'pan' | 'create' | 'move' | 'marquee' | 'resize' | 'rotate' | 'connector';
+    start: Vec2;
+    last: Vec2;
+    moved: boolean;
+    targetId?: string;
+    initialPositions?: Map<string, Vec2>;
+    marquee?: { x: number; y: number; w: number; h: number };
+    connector?: { id: string; points: Vec2[] };
+  }>({ mode: 'none', start: { x: 0, y: 0 }, last: { x: 0, y: 0 }, moved: false });
+
+    const screenToWorld = useCallback(
+    (sx: number, sy: number): Vec2 => {
+      const svg = svgRef.current as any;
+      const g = worldRef.current as any;
+      if (svg && g && typeof g.getScreenCTM === 'function' && typeof svg.createSVGPoint === 'function') {
+        try {
+          const pt = svg.createSVGPoint();
+          pt.x = sx; pt.y = sy;
+          const m = g.getScreenCTM();
+          if (m && typeof m.inverse === 'function') {
+            const inv = m.inverse();
+            const p = pt.matrixTransform(inv);
+            return { x: p.x, y: p.y };
+          }
+        } catch {}
+      }
+      const v = svgRef.current?.getBoundingClientRect();
+      if (!v) return { x: sx, y: sy };
+      return { x: (sx - v.left) / state.camera.zoom + state.camera.x, y: (sy - v.top) / state.camera.zoom + state.camera.y };
+    },
+    [state.camera]
+  );
+
+  const worldToScreen = useCallback(
+    (wx: number, wy: number): Vec2 => {
+      return {
+        x: (wx - state.camera.x) * state.camera.zoom,
+        y: (wy - state.camera.y) * state.camera.zoom,
+      };
+    },
+    [state.camera]
+  );
+
+  const onWheel = useCallback(
+    (e: React.WheelEvent) => {
+      if (!svgRef.current) return;
+      e.preventDefault();
+      if (menu?.open) setMenu(null);
+      const dir = Math.sign(e.deltaY);
+      const factor = dir > 0 ? 0.9 : 1.1;
+      const next = state.camera.zoom * factor;
+      api.setZoomAt(next, { x: e.clientX, y: e.clientY }, svgRef.current.getBoundingClientRect());
+    },
+    [api, state.camera.zoom, menu]
+  );
+
+  const startPan = (pt: Vec2) => {
+    dragRef.current = { mode: 'pan', start: pt, last: pt, moved: false };
+  };
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (menu?.open) setMenu(null);
+    if (editingId) return; // no gestures while editing
+    if (!svgRef.current) return;
+    const midClick = e.button === 1;
+    const shouldPan = midClick || isSpace.current;
+    const world = screenToWorld(e.clientX, e.clientY);
+    // check handles if single selection
+    if (tool === 'pointer' && state.selection.length === 1) {
+      const sel = state.nodes.find((n) => n.id === state.selection[0] && n.type !== 'connector') as NodeShape | undefined;
+      if (sel) {
+        const hs = handleRects(sel);
+        const hit = hs.find((h) => contains(h, world));
+        if (hit) {
+          dragRef.current = { mode: hit.type === 'rotate' ? 'rotate' : 'resize', start: world, last: world, moved: false, targetId: sel.id } as any;
+          return;
+        }
+      }
+    }
+    if (shouldPan && (midClick || isSpace.current)) {
+      startPan(world);
+      return;
+    }
+    if (tool !== 'pointer') {
+      if (tool === 'connector') {
+        const id = crypto.randomUUID();
+        dragRef.current = {
+          mode: 'connector',
+          start: world,
+          last: world,
+          moved: false,
+          connector: { id, points: [world] },
+        };
+      } else {
+        const defSize = (t: ToolKey) => ({ w: t === 'text' ? 160 : 160, h: t === 'text' ? 40 : 120 });
+        const sz = defSize(tool);
+        const id = api.createNodeAt(tool, { x: world.x - sz.w / 2, y: world.y - sz.h / 2 });
+        if (id) dragRef.current = { mode: 'move', start: world, last: world, moved: false, targetId: id };
+      }
+      return;
+    }
+
+    // pointer tool: select/move or marquee
+    const hitId = grid.hitTest(world);
+    if (hitId) {
+      const add = (e.shiftKey || e.metaKey || e.ctrlKey) && state.selection.includes(hitId) === false;
+      const nextSel = add ? [...state.selection, hitId] : [hitId];
+      api.setSelection(nextSel);
+      const initialPositions = new Map<string, Vec2>();
+      for (const n of state.nodes) if (nextSel.includes(n.id)) initialPositions.set(n.id, { ...n.position });
+      dragRef.current = {
+        mode: 'move',
+        start: world,
+        last: world,
+        moved: false,
+        targetId: hitId,
+        initialPositions,
+      };
+    } else {
+      api.setSelection([]);
+      dragRef.current = { mode: 'marquee', start: world, last: world, moved: false, marquee: { x: world.x, y: world.y, w: 0, h: 0 } };
+    }
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (dragRef.current.mode === 'none') return;
+    const world = screenToWorld(e.clientX, e.clientY);
+    const d = dragRef.current;
+    d.moved = true;
+    const dx = world.x - d.last.x;
+    const dy = world.y - d.last.y;
+    d.last = world;
+    if (d.mode === 'pan') {
+      api.panBy(-dx, -dy);
+    } else if ((d.mode === 'resize' || d.mode === 'rotate') && d.targetId) {
+      const n = state.nodes.find((x) => x.id === d.targetId) as NodeShape | undefined;
+      if (!n) return;
+      if (d.mode === 'resize') {
+        const nx = Math.min(n.position.x, n.position.x + (n.width || 0) + dx) ;
+        const ny = Math.min(n.position.y, n.position.y + (n.height || 0) + dy);
+        const nw = Math.max(16, (n.width || 0) + dx);
+        const nh = Math.max(16, (n.height || 0) + dy);
+        api.updateNode(n.id, { position: { x: nx, y: ny }, width: nw, height: nh });
+      } else {
+        const cx = n.position.x + (n.width || 0) / 2;
+        const cy = n.position.y + (n.height || 0) / 2;
+        const a = Math.atan2(d.last.y - cy, d.last.x - cx);
+        api.updateNode(n.id, { rotation: a });
+      }
+    } else if (d.mode === 'move' && d.initialPositions) {
+      api.moveNodesBy(state.selection, dx, dy);
+    } else if (d.mode === 'marquee' && d.marquee) {
+      d.marquee.w = world.x - d.start.x;
+      d.marquee.h = world.y - d.start.y;
+      const x0 = Math.min(d.start.x, world.x);
+      const y0 = Math.min(d.start.y, world.y);
+      const x1 = Math.max(d.start.x, world.x);
+      const y1 = Math.max(d.start.y, world.y);
+      const vis = new Set<string>();
+      for (const n of state.nodes) {
+        if (n.type === 'connector') continue;
+        const x = (n as NodeShape).position.x;
+        const y = (n as NodeShape).position.y;
+        const w = (n as NodeShape).width || 0;
+        const h = (n as NodeShape).height || 0;
+        if (x >= x0 && y >= y0 && x + w <= x1 && y + h <= y1) vis.add(n.id);
+      }
+      api.setSelection([...vis]);
+    } else if (d.mode === 'connector' && d.connector) {
+      d.connector.points.push(world);
+    }
+  };
+
+  const onPointerUp = () => {
+    const d = dragRef.current;
+    if (d.mode === 'connector' && d.connector) {
+      const id = crypto.randomUUID();
+      const conn: Connector = {
+        id,
+        type: 'connector',
+        position: { x: 0, y: 0 },
+        points: d.connector.points,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        style: { stroke: '#93c5fd', strokeWidth: 1.5, dash: [] },
+      };
+      api.setState((s) => ({ ...s, nodes: [...s.nodes, conn], selection: [id] }));
+    }
+    dragRef.current = { mode: 'none', start: { x: 0, y: 0 }, last: { x: 0, y: 0 }, moved: false };
+  };
+
+  // zoom buttons
+  const setZoom = (z: number) => {
+    if (!svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    api.setZoomAt(z, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, rect);
+  };
+
+  // export
+  const handleExportSVG = () => {
+    const svg = exportSVG(state);
+    downloadBlob(new Blob([svg], { type: 'image/svg+xml' }), `whiteboard-${boardId}.svg`);
+  };
+  const handleExportPNG = async () => {
+    const blob = await exportPNG(state);
+    downloadBlob(blob, `whiteboard-${boardId}.png`);
+  };
+
+  // camera viewport for culling (smart padding)
+  const viewWorld = useMemo(() => {
+    const r = svgRef.current?.getBoundingClientRect();
+    const base = r ? { x: state.camera.x, y: state.camera.y, w: r.width / state.camera.zoom, h: r.height / state.camera.zoom } : { x: state.camera.x, y: state.camera.y, w: 2000, h: 1200 };
+    const pad = Math.max(256, Math.floor(400 / Math.max(0.01, state.camera.zoom)));
+    return { x: base.x - pad, y: base.y - pad, w: base.w + pad * 2, h: base.h + pad * 2 };
+  }, [state.camera]);
+  const visibleIds = useMemo(() => grid.visibleIn(viewWorld), [grid, viewWorld]);
+
+  // background grid pattern (world units)
+  const gridStep = 24;
+
+  return (
+    <div ref={rootRef} className="w-full h-full bg-[#070a14] flex flex-col overflow-hidden">
+      <Toolbar
+        tool={tool}
+        onTool={setTool}
+        zoom={state.camera.zoom}
+        onZoom={(z) => setZoom(z)}
+        onZoomIn={() => setZoom(state.camera.zoom * 1.1)}
+        onZoomOut={() => setZoom(state.camera.zoom * 0.9)}
+        onFit={() => api.fitToContent(64)}
+        onUndo={api.undo}
+        onRedo={api.redo}
+        onExportSVG={handleExportSVG}
+        onExportPNG={handleExportPNG}
+      />
+      <div className="relative flex-1">
+        <svg
+          ref={svgRef}
+          className="w-full h-full cursor-[crosshair] select-none"\r\n          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            if (!svgRef.current) return;
+            const world = screenToWorld(e.clientX, e.clientY);
+            // seleccionar si hay un hit distinto
+            const hitId = grid.hitTest(world);
+            if (hitId && !state.selection.includes(hitId)) api.setSelection([hitId]);
+            setMenu({ x: e.clientX, y: e.clientY, open: true });
+          }}
+          onDoubleClick={() => {
+            if (!state.selection[0]) return;
+            const n = state.nodes.find((x) => x.id === state.selection[0]);
+            if (!n || (n.type !== 'text' && n.type !== 'note')) return;
+            setEditingId(n.id);
+          }}
+          role="application"
+          aria-label="Lienzo de pizarra"
+        >
+          <defs>
+            <pattern id="grid" width={gridStep} height={gridStep} patternUnits="userSpaceOnUse">
+              <circle cx="1" cy="1" r="0.6" className="fill-white/10" />
+            </pattern>
+          </defs>
+          <g ref={worldRef} transform={`translate(${-state.camera.x} ${-state.camera.y}) scale(${state.camera.zoom})`}>
+            <rect x={-100000} y={-100000} width={200000} height={200000} fill="url(#grid)" />
+            {/* content */}
+            {state.nodes.map((n) => {
+              // Asegura que un nodo recién creado/seleccionado se muestre inmediatamente,
+              // incluso antes de que el SpatialGrid se actualice tras el render.
+              const isVisible = n.type === "connector" || state.selection.includes(n.id) || visibleIds.has(n.id);
+              if (!isVisible) return null;
+              return <Shape key={n.id} node={n} selected={state.selection.includes(n.id)} />;
+            })}
+            {/* selection handles */}
+            {state.selection.length === 1 && (() => {
+              const sel = state.nodes.find((n) => n.id === state.selection[0] && n.type !== 'connector') as NodeShape | undefined;
+              if (!sel) return null;
+              return (
+                <g>
+                  {handleRects(sel).map((h) => (
+                    <rect key={h.key} x={h.x} y={h.y} width={h.w} height={h.h} fill="#93c5fd" opacity={0.6} />
+                  ))}
+                </g>
+              );
+            })()}
+            {/* marquee */}
+            {dragRef.current.mode === 'marquee' && dragRef.current.marquee && (
+              <rect
+                x={Math.min(dragRef.current.start.x, dragRef.current.last.x)}
+                y={Math.min(dragRef.current.start.y, dragRef.current.last.y)}
+                width={Math.abs(dragRef.current.last.x - dragRef.current.start.x)}
+                height={Math.abs(dragRef.current.last.y - dragRef.current.start.y)}
+                className="fill-blue-400/10 stroke-blue-400/40"
+              />
+            )}
+          </g>
+        </svg>
+        {editingId && (() => {
+          const n = state.nodes.find((x) => x.id === editingId && x.type !== 'connector') as NodeShape | undefined;
+          if (!n) return null;
+          const pos = worldToScreen(n.position.x, n.position.y);
+          const w = (n.width || 0) * state.camera.zoom;
+          const h = (n.height || 0) * state.camera.zoom;
+          const pad = 8 * state.camera.zoom;
+          return (
+            <textarea
+              autoFocus
+              value={n.text || ''}
+              onChange={(e) => api.updateNode(n.id, { ...(n as NodeShape), text: e.target.value })}
+              onBlur={() => setEditingId(null)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setEditingId(null);
+                }
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  setEditingId(null);
+                }
+              }}
+              style={{
+                position: 'absolute',
+                left: pos.x,
+                top: pos.y,
+                width: Math.max(10, w),
+                height: Math.max(24, h),
+                padding: `${pad / 2}px ${pad}px`,
+                fontFamily: n.style?.fontFamily || 'Inter, system-ui, Arial',
+                fontSize: (n.style?.fontSize || 16) * state.camera.zoom,
+                lineHeight: 1.35,
+                color: n.type === 'note' ? '#0b1222' : (n.style?.stroke || '#e5e7eb'),
+                background: n.type === 'note' ? (n.style?.fill || '#fff9c4') : 'transparent',
+                border: '1px solid rgba(147,197,253,0.6)',
+                borderRadius: `${6 * state.camera.zoom}px`,
+                outline: 'none',
+                resize: 'none',
+                overflow: 'hidden',
+                whiteSpace: 'pre-wrap',
+              }}
+            />
+          );
+        })()}
+        {menu?.open && (
+          <ContextMenu
+            x={menu.x}
+            y={menu.y}
+            hasSelection={state.selection.length > 0}
+            onClose={() => setMenu(null)}
+            onCopy={() => {
+              const selected = state.nodes.filter((n) => state.selection.includes(n.id));
+              const json = JSON.stringify(selected);
+              clipboardRef.current = json;
+              try { navigator.clipboard?.writeText(json).catch(() => {}); } catch {}
+              pasteCountRef.current = 0;
+              setMenu(null);
+            }}
+            onCut={() => {
+              const selected = state.nodes.filter((n) => state.selection.includes(n.id));
+              const json = JSON.stringify(selected);
+              clipboardRef.current = json;
+              try { navigator.clipboard?.writeText(json).catch(() => {}); } catch {}
+              api.deleteNodes(state.selection);
+              pasteCountRef.current = 0;
+              setMenu(null);
+            }}
+            onPaste={() => {
+              const data = clipboardRef.current;
+              if (!data) return setMenu(null);
+              try {
+                const items = JSON.parse(data) as any[];
+                const idMap = new Map<string, string>();
+                const ts = Date.now();
+                const offset = 16 * (++pasteCountRef.current);
+                api.setState((s) => {
+                  const clones = items.map((n) => {
+                    const nid = crypto.randomUUID();
+                    idMap.set(n.id, nid);
+                    if (n.type === 'connector') {
+                      const c = { ...n };
+                      return {
+                        ...c,
+                        id: nid,
+                        position: { x: c.position.x + offset, y: c.position.y + offset },
+                        points: c.points.map((p: any) => ({ x: p.x + offset, y: p.y + offset })),
+                        createdAt: ts,
+                        updatedAt: ts,
+                        from: c.from ? { ...c.from, nodeId: idMap.get(c.from.nodeId) || c.from.nodeId } : undefined,
+                        to: c.to ? { ...c.to, nodeId: idMap.get(c.to.nodeId) || c.to.nodeId } : undefined,
+                      } as Connector;
+                    }
+                    const d = { ...n } as NodeShape;
+                    return {
+                      ...d,
+                      id: nid,
+                      position: { x: d.position.x + offset, y: d.position.y + offset },
+                      createdAt: ts,
+                      updatedAt: ts,
+                    } as NodeShape;
+                  });
+                  return { ...s, nodes: [...s.nodes, ...clones], selection: clones.map((c) => c.id) };
+                });
+              } catch {}
+              setMenu(null);
+            }}
+            onDuplicate={() => { api.duplicateNodes(state.selection); setMenu(null); }}
+            onDelete={() => { api.deleteNodes(state.selection); setMenu(null); }}
+            onSelectAll={() => { api.setSelection(state.nodes.map((n) => n.id)); setMenu(null); }}
+            onBringFront={() => {
+              api.setState((s) => {
+                const setSel = new Set(s.selection);
+                const others = s.nodes.filter((n) => !setSel.has(n.id));
+                const sel = s.nodes.filter((n) => setSel.has(n.id));
+                return { ...s, nodes: [...others, ...sel] };
+              });
+              setMenu(null);
+            }}
+            onSendBack={() => {
+              api.setState((s) => {
+                const setSel = new Set(s.selection);
+                const others = s.nodes.filter((n) => !setSel.has(n.id));
+                const sel = s.nodes.filter((n) => setSel.has(n.id));
+                return { ...s, nodes: [...sel, ...others] };
+              });
+              setMenu(null);
+            }}
+            onFit={() => { api.fitToContent(64); setMenu(null); }}
+            onUndo={() => { api.undo(); setMenu(null); }}
+            onRedo={() => { api.redo(); setMenu(null); }}
+          />
+        )}
+        <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2 bg-[#05080f] backdrop-blur rounded-full shadow ring-1 ring-white/10 px-3 py-2 text-sm text-white">
+          <button className="w-7 h-7 rounded-full hover:bg-black/5" onClick={() => setZoom(state.camera.zoom * 0.9)} aria-label="Alejar">−</button>
+          <span className="min-w-[52px] text-center select-none">{Math.round(state.camera.zoom * 100)} %</span>
+          <button className="w-7 h-7 rounded-full hover:bg-black/5" onClick={() => setZoom(state.camera.zoom * 1.1)} aria-label="Acercar">+</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function downloadBlob(blob: Blob, name: string) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 500);
+}
+
+function gridCleanup(g: SpatialGrid) {
+  // no-op placeholder for future pooling
+}
+
+function handleRects(n: NodeShape | undefined) {
+  if (!n || !n.position) return []; const s = 6;
+  const k = (label: string, x: number, y: number) => ({ key: label, type: label as any, x: x - s / 2, y: y - s / 2, w: s, h: s });
+  const x0 = n.position.x;
+  const y0 = n.position.y;
+  const x1 = x0 + (n.width || 0);
+  const y1 = y0 + (n.height || 0);
+  const cx = (x0 + x1) / 2;
+  const cy = (y0 + y1) / 2;
+  const rot = k('rotate', cx, y0 - 20);
+  return [k('nw', x0, y0), k('ne', x1, y0), k('sw', x0, y1), k('se', x1, y1), rot];
+}
+
+function contains(r: { x: number; y: number; w: number; h: number }, p: Vec2) {
+  return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+}
+
+function Shape({ node, selected }: { node: NodeShape | Connector; selected: boolean }) {
+  if (node.type === 'connector') {
+    const c = node as Connector;
+    const d = `M ${c.points.map((p) => `${p.x} ${p.y}`).join(' L ')}`;
+    const dash = c.style?.dash?.length ? { strokeDasharray: c.style?.dash?.join(',') } : undefined;
+    return <path d={d} fill="none" stroke={c.style?.stroke || '#93c5fd'} strokeWidth={c.style?.strokeWidth || 1.5} style={dash} />;
+  }
+  const n = node as NodeShape;
+  if (!n || !(n as any).position) return null;
+  const { position, width = 0, height = 0, rotation = 0, style, type } = n;
+  const sel = '';
+  const transform = rotation ? `rotate(${(rotation * 180) / Math.PI} ${position.x + width / 2} ${position.y + height / 2})` : undefined;
+  const textColor = type === 'note' ? '#0b1222' : (n.style?.stroke || '#e5e7eb');
+  return (
+    <g transform={transform}>
+      {type === 'ellipse' ? (
+        <ellipse
+          cx={position.x + width / 2}
+          cy={position.y + height / 2}
+          rx={width / 2}
+          ry={height / 2}
+          fill={style?.fill || 'transparent'}
+          stroke={style?.stroke || 'transparent'}
+          strokeWidth={style?.strokeWidth || 0}
+          opacity={style?.opacity ?? 1}
+          className={sel}
+        />
+      ) : (
+        <rect
+          x={position.x}
+          y={position.y}
+          width={width}
+          height={height}
+          rx={type === 'note' ? 8 : 6}
+          fill={style?.fill || 'transparent'}
+          stroke={style?.stroke || 'transparent'}
+          strokeWidth={style?.strokeWidth || 0}
+          opacity={style?.opacity ?? 1}
+          className={sel}
+        />
+      )}
+      {selected && (
+        type === 'ellipse' ? (
+          <ellipse
+            cx={position.x + width / 2}
+            cy={position.y + height / 2}
+            rx={width / 2}
+            ry={height / 2}
+            fill="rgba(59,130,246,0.20)"
+            stroke="#3b82f6"
+            strokeWidth={2}
+            strokeDasharray="6 4"
+            pointerEvents="none"
+          />
+        ) : (
+          <rect
+            x={position.x}
+            y={position.y}
+            width={width}
+            height={height}
+            rx={type === 'note' ? 8 : 6}
+            fill="rgba(59,130,246,0.20)"
+            stroke="#3b82f6"
+            strokeWidth={2}
+            strokeDasharray="6 4"
+            pointerEvents="none"
+          />
+        )
+      )}
+      {(type === 'note' || type === 'text') && (
+        <foreignObject x={position.x} y={position.y} width={width} height={height} pointerEvents="none">
+          <div
+            xmlns="http://www.w3.org/1999/xhtml"
+            style={{
+              width: '100%',
+              height: '100%',
+              padding: '8px',
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: n.style?.textAlign === 'right' ? 'flex-end' : n.style?.textAlign === 'center' ? 'center' : 'flex-start',
+              color: textColor,
+              fontFamily: n.style?.fontFamily || 'Inter, system-ui, Arial',
+              fontSize: `${n.style?.fontSize || 16}px`,
+              lineHeight: 1.35,
+              overflow: 'hidden',
+              wordBreak: 'break-word',
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {n.text || ''}
+          </div>
+        </foreignObject>
+      )}
+    </g>
+  );
+}
+
+function Toolbar(props: {
+  tool: ToolKey;
+  onTool: (t: ToolKey) => void;
+  zoom: number;
+  onZoom: (z: number) => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onFit: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  onExportSVG: () => void;
+  onExportPNG: () => void;
+}) {
+  const btn = 'w-10 h-10 rounded-md bg-white/5 hover:bg-white/10 text-white/80 text-base flex items-center justify-center';
+  const active = 'bg-white/10 ring-1 ring-white/20 text-white';
+  const ToolBtn = ({ id, label, icon }: { id: ToolKey; label: string; icon: string }) => (
+    <button aria-label={label} title={label} className={btn + " " + (props.tool === id ? active : "")} onClick={() => props.onTool(id)}>
+      {icon}
+    </button>
+  );
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-2 py-2 rounded-full bg-[#05080f] backdrop-blur shadow-lg ring-1 ring-white/10 text-white">
+      <ToolBtn id="pointer" label="Puntero" icon=">" />
+      <ToolBtn id="note" label="Nota" icon="N" />
+      <ToolBtn id="rect" label="Rect�ngulo" icon="[]" />
+      <ToolBtn id="diamond" label="Rombo" icon="<>" />
+      <ToolBtn id="ellipse" label="Elipse" icon="()" />
+      <ToolBtn id="text" label="Texto" icon="T" />
+      <ToolBtn id="connector" label="Conector" icon="--" />
+      <div className="mx-2 w-px h-6 bg-white/10" />
+      <button aria-label="Deshacer" className={btn} onClick={props.onUndo}>
+        Deshacer
+      </button>
+      <button aria-label="Rehacer" className={btn} onClick={props.onRedo}>
+        Rehacer
+      </button>
+      <div className="mx-2 w-px h-6 bg-white/10" />
+      <button aria-label="Reducir zoom" className={btn} onClick={props.onZoomOut}>
+        -
+      </button>
+      <span className="text-white/60 text-sm w-16 text-center">{Math.round(props.zoom * 100)}%</span>
+      <button aria-label="Ampliar zoom" className={btn} onClick={props.onZoomIn}>
+        +
+      </button>
+      <button aria-label="Ajustar al contenido" className={btn} onClick={props.onFit}>
+        Ajustar
+      </button>
+      <div className="mx-2 w-px h-6 bg-white/10" />
+      <button aria-label="Exportar SVG" className={btn} onClick={props.onExportSVG}>
+        Exportar SVG
+      </button>
+      <button aria-label="Exportar PNG" className={btn} onClick={props.onExportPNG}>
+        Exportar PNG
+      </button>
+    </div>
+  );
+}
+
+function RightPanel({
+  state,
+  onPatch,
+}: {
+  state: BoardState;
+  onPatch: (id: string, patch: Partial<NodeShape>) => void;
+}) {
+  const id = state.selection[0];
+  const node = state.nodes.find((n) => n.id === id && n.type !== 'connector') as NodeShape | undefined;
+  if (!node)
+    return <div className="h-12 border-t border-black/10 px-3 text-gray-500 text-sm flex items-center bg-white/70 backdrop-blur">Sin selecci�n</div>;
+  const style = node.style || {};
+  return (
+    <div className="h-12 border-t border-black/10 px-3 text-gray-800 text-sm flex items-center gap-3 bg-white/70 backdrop-blur">
+      <label className="flex items-center gap-2">
+        <span className="text-gray-500">Relleno</span>
+        <input
+          aria-label="Color de relleno"
+          type="color"
+          value={style.fill || '#0b1222'}
+          onChange={(e) => onPatch(node.id, { style: { ...style, fill: e.target.value } })}
+          className="h-7 w-10 bg-transparent"
+        />
+      </label>
+      <label className="flex items-center gap-2">
+        <span className="text-gray-500">Borde</span>
+        <input
+          aria-label="Color del borde"
+          type="color"
+          value={style.stroke || '#93c5fd'}
+          onChange={(e) => onPatch(node.id, { style: { ...style, stroke: e.target.value } })}
+          className="h-7 w-10 bg-transparent"
+        />
+      </label>
+      <label className="flex items-center gap-2">
+        <span className="text-gray-500">Grosor</span>
+        <input
+          aria-label="Grosor del borde"
+          type="number"
+          min={0}
+          max={12}
+          value={style.strokeWidth || 1.5}
+          onChange={(e) => onPatch(node.id, { style: { ...style, strokeWidth: Number(e.target.value) } })}
+          className="h-7 w-16 bg-white/5 rounded px-2"
+        />
+      </label>
+      {(node.type === 'note' || node.type === 'text') && (
+        <label className="flex items-center gap-2">
+          <span className="text-gray-500">Tama�o</span>
+          <input
+            aria-label="Tamaño de fuente"
+            type="number"
+            min={10}
+            max={64}
+            value={style.fontSize || 16}
+            onChange={(e) => onPatch(node.id, { style: { ...style, fontSize: Number(e.target.value) } })}
+            className="h-7 w-16 bg-white/5 rounded px-2"
+          />
+        </label>
+      )}
+    </div>
+  );
+}
+
+function MiniMap({ state, onJump }: { state: BoardState; onJump: (x: number, y: number) => void }) {
+  const W = 180;
+  const H = 120;
+  const [open, setOpen] = useState(false);
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  for (const n of state.nodes) {
+    if (n.type === 'connector') continue;
+    const x = (n as NodeShape).position.x;
+    const y = (n as NodeShape).position.y;
+    const w = (n as NodeShape).width || 0;
+    const h = (n as NodeShape).height || 0;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + w);
+    maxY = Math.max(maxY, y + h);
+  }
+  if (!isFinite(minX)) {
+    minX = -500;
+    minY = -400;
+    maxX = 500;
+    maxY = 400;
+  }
+  const cw = maxX - minX;
+  const ch = maxY - minY;
+  const scale = Math.min(W / (cw || 1), H / (ch || 1));
+  const view = state.camera;
+  const vx = (view.x - minX) * scale;
+  const vy = (view.y - minY) * scale;
+  const vw = (window.innerWidth / view.zoom) * scale;
+  const vh = (window.innerHeight / view.zoom) * scale;
+
+  return (
+    <div className="absolute bottom-3 right-3 select-none">
+      <button
+        aria-label="Alternar minimapa"
+        onClick={() => setOpen((v) => !v)}
+        className="mb-2 px-2 h-8 rounded bg-white/5 hover:bg-white/10 text-white/70 text-xs"
+      >
+        {open ? 'Ocultar mapa' : 'Mostrar mapa'}
+      </button>
+      {open && (
+        <svg
+          width={W}
+          height={H}
+          className="rounded-md bg-[#05080f] ring-1 ring-white/10 shadow-lg"
+          onClick={(e) => {
+            const r = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
+            const sx = e.clientX - r.left;
+            const sy = e.clientY - r.top;
+            const wx = sx / scale + minX;
+            const wy = sy / scale + minY;
+            onJump(wx, wy);
+          }}
+        >
+          <rect x={0} y={0} width={W} height={H} fill="#0b1222" />
+          {state.nodes.map((n) => {
+            if (n.type === 'connector') return null;
+            const s = n as NodeShape;
+            const x = (s.position.x - minX) * scale;
+            const y = (s.position.y - minY) * scale;
+            const w = (s.width || 0) * scale;
+            const h = (s.height || 0) * scale;
+            return <rect key={s.id} x={x} y={y} width={w} height={h} fill="#1f2937" stroke="#93c5fd" strokeWidth={0.5} />;
+          })}
+          <rect x={vx} y={vy} width={vw} height={vh} fill="none" stroke="#60a5fa" strokeWidth={1} />
+        </svg>
+      )}
+    </div>
+  );
+}
+
+// Public API re-export (module-level helpers)
+export function exportBoardJSON(panelRef: { current?: { api?: ReturnType<typeof useBoardStore> } } | null): string {
+  try {
+    // not used in this MVP, provided for API surface
+    return '';
+  } catch {
+    return '';
+  }
+}
+function MenuItem({ children, onClick, disabled }: { children: React.ReactNode; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      className={`w-full text-left px-3 py-2 rounded ${disabled ? 'text-white/30 cursor-not-allowed' : 'hover:bg-white/10 text-white/90'}`}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Separator() {
+  return <div className="h-px bg-white/10 my-1" />;
+}
+
+function ContextMenu(props: {
+  x: number;
+  y: number;
+  hasSelection: boolean;
+  onClose: () => void;
+  onCopy: () => void;
+  onCut: () => void;
+  onPaste: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  onSelectAll: () => void;
+  onBringFront: () => void;
+  onSendBack: () => void;
+  onFit: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+}) {
+  useEffect(() => {
+    const close = () => props.onClose();
+    window.addEventListener('pointerdown', close, { once: true });
+    return () => window.removeEventListener('pointerdown', close);
+  }, []);
+  return (
+    <div
+      className="absolute z-50 min-w-[210px] p-1 rounded-md bg-[#05080f] border border-white/10 shadow-xl"
+      style={{ left: props.x, top: props.y }}
+      role="menu"
+      aria-label="Menú contextual"
+    >
+      <MenuItem onClick={props.onCopy} disabled={!props.hasSelection}>Copiar</MenuItem>
+      <MenuItem onClick={props.onCut} disabled={!props.hasSelection}>Cortar</MenuItem>
+      <MenuItem onClick={props.onPaste}>Pegar</MenuItem>
+      <MenuItem onClick={props.onDuplicate} disabled={!props.hasSelection}>Duplicar</MenuItem>
+      <MenuItem onClick={props.onDelete} disabled={!props.hasSelection}>Eliminar</MenuItem>
+      <Separator />
+      <MenuItem onClick={props.onBringFront} disabled={!props.hasSelection}>Traer al frente</MenuItem>
+      <MenuItem onClick={props.onSendBack} disabled={!props.hasSelection}>Enviar al fondo</MenuItem>
+      <Separator />
+      <MenuItem onClick={props.onSelectAll}>Seleccionar todo</MenuItem>
+      <MenuItem onClick={props.onFit}>Ajustar al contenido</MenuItem>
+      <Separator />
+      <MenuItem onClick={props.onUndo}>Deshacer</MenuItem>
+      <MenuItem onClick={props.onRedo}>Rehacer</MenuItem>
+    </div>
+  );
+}
+
+
+
+

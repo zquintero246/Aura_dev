@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+# Node
+node_modules/
+
 # Distribution / packaging
 .Python
 build/
@@ -69,7 +72,7 @@ instance/
 .scrapy
 
 # Sphinx documentation
-AuraLLM/docs/_build/
+docs/_build/
 
 # PyBuilder
 .pybuilder/
@@ -209,10 +212,3 @@ __marimo__/
 #Modelos
 .pt
 /AuraLM/Gpt-2PaperTry/Data
-
-#Jetbrains ide
-workspace.xml
-.idea/workspace.xml
-
-
-AuraLLM/models

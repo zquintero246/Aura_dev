@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # ================= Laravel App =================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aura_app
+    restart: always
+    working_dir: /var/www/html
+    volumes:
+      - .:/var/www/html
+    ports:
+      - "9000:9000"
+    environment:
+      APP_ENV: local
+      DB_CONNECTION: pgsql
+      DB_HOST: aura_postgres
+      DB_PORT: 5432
+      DB_DATABASE: aura_main
+      DB_USERNAME: aura_user
+      DB_PASSWORD: aura_pass
+    networks:
+      - aura_net
+      - aura_network
+    depends_on:
+      - mongo
+
+  # ================= Nginx =================
+  nginx:
+    image: nginx:latest
+    container_name: aura_nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - .:/var/www/html
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - app
+    networks:
+      - aura_net
+      - aura_network
+
+  # ================= MongoDB (shared) =================
+  mongo:
+    image: mongo:7
+    container_name: aura_mongo
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: aura_admin
+      MONGO_INITDB_ROOT_PASSWORD: aura_pass
+      MONGO_INITDB_DATABASE: aura_chat
+    ports:
+      - "27017:27017"
+    volumes:
+      - ../mongodb/data:/data/db
+      - ../mongodb/init.js:/docker-entrypoint-initdb.d/init.js
+    networks:
+      - aura_net
+
+networks:
+  aura_net:
+    driver: bridge
+  aura_network:
+    external: true

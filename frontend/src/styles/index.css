@@ -1,0 +1,70 @@
+@import './tailwind.css';
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+
+body {
+  font-family: 'Inter', sans-serif;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+*, *::before, *::after {
+  box-sizing: inherit;
+}
+
+/* ------- Light theme (filter-based) ------- */
+html.theme-light {
+  color-scheme: light;
+}
+html.theme-light body {
+  background: #f7f7fb;
+}
+/* Invert the whole app to approximate a light theme without
+   refactoring Tailwind colors across components. */
+html.theme-light #root {
+  filter: invert(1) hue-rotate(180deg);
+  /* Evita que aparezca el scrollbar del documento al invertir colores */
+  overflow: hidden;
+}
+/* Re-invert media so images/avatars keep original colors */
+html.theme-light img,
+html.theme-light video,
+html.theme-light canvas,
+html.theme-light iframe,
+html.theme-light picture {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* En tema claro, bloquea el scroll del documento para evitar la barra derecha.
+   El contenido interno (chats) ya maneja su propio scroll. */
+html.theme-light,
+html.theme-light body {
+  overflow: hidden;
+}
+
+/* Smooth theme cross-fade when toggling */
+@media (prefers-reduced-motion: no-preference) {
+  html.theme-xfade #root {
+    transition: filter 240ms ease; /* for invert() approach */
+  }
+  html.theme-xfade body {
+    transition: background-color 240ms ease, color 240ms ease;
+  }
+  html.theme-xfade *,
+  html.theme-xfade *::before,
+  html.theme-xfade *::after {
+    transition: background-color 240ms ease, color 240ms ease,
+                border-color 240ms ease, fill 240ms ease, stroke 240ms ease,
+                box-shadow 240ms ease, opacity 240ms ease, filter 240ms ease;
+  }
+}
+
+/* Mientras dura la transición, ocultar el scroll global
+   para evitar parpadeos/“saltos” del layout */
+html.theme-xfade,
+html.theme-xfade body {
+  overflow: hidden !important;
+}
+html.theme-xfade #root {
+  overflow: hidden;
+}

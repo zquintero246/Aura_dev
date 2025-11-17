@@ -1,0 +1,432 @@
+import React, { useEffect, useRef, useState } from 'react';
+
+type ItemKey = 'chats' | 'group' | 'project' | 'telemetry';
+
+type IconRailInlineProps = {
+  active: ItemKey;
+  onSelect: (key: ItemKey) => void;
+  onToggleTheme?: () => void;
+  avatarUrl?: string;
+  userName?: string;
+  onProfile?: () => void;
+  onSettings?: () => void;
+  onChangePassword?: () => void;
+  onLogout?: () => void;
+};
+
+const IconRailInline: React.FC<IconRailInlineProps> = ({
+  active,
+  onSelect,
+  onToggleTheme,
+  avatarUrl,
+  userName = 'Tu perfil',
+  onProfile,
+  onSettings,
+  onChangePassword,
+  onLogout,
+}) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [disabledNotice, setDisabledNotice] = useState<{
+    title: string;
+    description: string;
+  } | null>(null);
+
+  const handleSelect = (key: ItemKey) => {
+    if (key === 'group') {
+      setDisabledNotice({
+        title: 'Grupos',
+        description: 'Aura sigue desarrollando esta sección. Muy pronto podrás explorar los grupos.',
+      });
+      return;
+    }
+
+    if (key === 'project') {
+      setDisabledNotice({
+        title: 'Proyectos',
+        description:
+          'Aura aún está construyendo los proyectos. Muy pronto podrás crear y seguir tus iniciativas.',
+      });
+      return;
+    }
+
+    onSelect(key);
+  };
+
+  const closeNotice = () => setDisabledNotice(null);
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpen(false);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, []);
+
+  return (
+    <>
+      <aside
+        className="
+    fixed left-0 top-0 z-30
+    h-screen w-[72px]  /* altura completa */
+    bg-[#070a14] text-white border-r border-white/10
+    flex flex-col items-center py-4  /* columna */
+  "
+      >
+        {/* --- TOP: logo + iconos --- */}
+        <div className="flex flex-col items-center gap-4">
+          <img src="/images/logo.svg" alt="Aura" className="mt-1 w-[38px] h-[38px]" />
+
+          <div className="mt-2 flex flex-col items-center gap-3">
+            <RailIcon label="Chats" active={active === 'chats'} onClick={() => handleSelect('chats')}>
+              <ChatsSVG />
+            </RailIcon>
+            <RailIcon label="Grupos" active={active === 'group'} disabled onClick={() => handleSelect('group')}>
+              <GroupSVG />
+            </RailIcon>
+            <RailIcon
+              label="Proyectos"
+              active={active === 'project'}
+              disabled
+              onClick={() => handleSelect('project')}
+            >
+              <ProjectSVG />
+            </RailIcon>
+            <RailIcon
+              label="Mi casa"
+              active={active === 'telemetry'}
+              onClick={() => handleSelect('telemetry')}
+            >
+              <MicasaSVG />
+            </RailIcon>
+          </div>
+        </div>
+
+        {/* --- BOTTOM: moon + perfil --- */}
+        <div className="mt-auto shrink-0 flex flex-col items-center gap-3 pb-2">
+          <RailIcon label="Cambiar tema" onClick={onToggleTheme}>
+            <MoonSVG />
+          </RailIcon>
+
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setMenuOpen((s) => !s)}
+              className="
+        mb-1 w-[48px] h-[48px] rounded-full overflow-hidden
+        ring-1 ring-white/10 hover:ring-white/20 transition
+        focus:outline-none focus:ring-2 focus:ring-[#8B3DFF]
+      "
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label={userName}
+              title={userName}
+            >
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={userName} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full grid place-items-center bg-white/10 text-sm font-semibold">
+                  {userName?.charAt(0)?.toUpperCase() || '?'}
+                </div>
+              )}
+            </button>
+
+            {/* Dropdown */}
+            {menuOpen && (
+              <div
+                role="menu"
+                className="
+          absolute bottom-14 left-0 w-[220px]
+          rounded-2xl border border-white/15
+          backdrop-blur
+          shadow-[0_10px_40px_-10px_rgba(0,0,0,0.6)]
+          p-2
+        "
+              >
+                <DropdownItem
+                  icon={<UserIcon />}
+                  label="Perfil"
+                  onClick={() => {
+                    try {
+                      onProfile?.();
+                    } finally {
+                      setMenuOpen(false);
+                    }
+                  }}
+                />
+
+                <div className="h-px bg-white/10 my-1" />
+
+                <DropdownItem
+                  icon={<LogoutIcon />}
+                  label="Cerrar sesión"
+                  onClick={() => {
+                    try {
+                      onLogout?.();
+                    } finally {
+                      setMenuOpen(false);
+                    }
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
+      {disabledNotice && <ComingSoonNotice notice={disabledNotice} onClose={closeNotice} />}
+    </>
+  );
+};
+
+export default IconRailInline;
+
+function ComingSoonNotice({
+  notice,
+  onClose,
+}: {
+  notice: { title: string; description: string };
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center px-4">
+      <div
+        className="absolute inset-0 bg-black/60"
+        aria-hidden="true"
+        onClick={onClose}
+      />
+      <div
+        role="alertdialog"
+        aria-labelledby="coming-soon-title"
+        aria-describedby="coming-soon-description"
+        className="relative z-50 w-full max-w-sm rounded-2xl border border-white/20 bg-[#0b0f1b] p-6 text-center shadow-[0_30px_60px_-20px_rgba(0,0,0,0.9)]"
+      >
+        <p className="text-xs uppercase tracking-[0.3em] text-white/60">Muy pronto</p>
+        <h3 id="coming-soon-title" className="mt-2 text-lg font-semibold text-white">
+          {notice.title}
+        </h3>
+        <p id="coming-soon-description" className="mt-3 text-sm text-white/80">
+          {notice.description}
+        </p>
+        <button
+          onClick={onClose}
+          className="mt-6 inline-flex items-center justify-center rounded-full border border-white/10 bg-white/10 px-6 py-2 text-sm font-semibold text-white transition hover:border-white/30 hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-[#8B3DFF] focus:ring-offset-2 focus:ring-offset-black"
+        >
+          Entendido
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RailIcon({
+  children,
+  label,
+  active,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  label: string;
+  active?: boolean;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  // clases por estado: si está activo, no aplicamos los :hover
+  const colorClasses = active
+    ? // Activo: círculo morado y trazo blanco, sin hover
+      '[&_circle]:fill-[#8B3DFF] [&_path]:fill-white'
+    : // Inactivo: gris base y aclarar en hover
+      '[&_circle]:fill-[#212529] group-hover:[&_circle]:fill-[#2a2f36] \
+       [&_path]:fill-[#4B535B] group-hover:[&_path]:fill-[#EDEDEF]';
+  const cursorClasses = disabled
+    ? 'cursor-not-allowed opacity-70'
+    : active
+    ? 'cursor-default'
+    : 'hover:cursor-pointer';
+
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      aria-pressed={!!active}
+      aria-disabled={disabled}
+      className={`
+        group relative grid place-items-center
+        w-[56px] h-[56px] rounded-full
+        focus:outline-none focus:ring-0      /* ⬅️ sin aro morado */
+        ${cursorClasses}
+      `}
+    >
+      <div className={`[&_circle]:transition-colors [&_path]:transition-colors ${colorClasses}`}>
+        {children}
+      </div>
+    </button>
+  );
+}
+
+function ChatsSVG() {
+  return (
+    <svg
+      width="50"
+      height="50"
+      viewBox="0 0 50 50"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <circle cx="25" cy="25" r="25" />
+      <path d="M25.5176 12C23.8784 12 22.2552 12.3233 20.7408 12.9515C19.2263 13.5796 17.8503 14.5003 16.6912 15.661C14.3503 18.0051 13.0352 21.1844 13.0352 24.4994C13.0243 27.3857 14.0223 30.1849 15.8562 32.4116L13.3597 34.9115C13.1865 35.0873 13.0692 35.3105 13.0225 35.5529C12.9759 35.7954 13.002 36.0463 13.0976 36.2739C13.2013 36.4988 13.3693 36.6878 13.5805 36.8169C13.7916 36.946 14.0363 37.0093 14.2834 36.9989H25.5176C28.8281 36.9989 32.0031 35.682 34.344 33.3379C36.6849 30.9938 38 27.8145 38 24.4994C38 21.1844 36.6849 18.0051 34.344 15.661C32.0031 13.3169 28.8281 12 25.5176 12ZM25.5176 34.499H17.2917L18.4525 33.3366C18.685 33.1024 18.8155 32.7856 18.8155 32.4553C18.8155 32.1251 18.685 31.8083 18.4525 31.5741C16.8181 29.9393 15.8003 27.7875 15.5725 25.4854C15.3447 23.1833 15.921 20.8734 17.2033 18.9491C18.4856 17.0248 20.3946 15.6053 22.6048 14.9323C24.8151 14.2594 27.1901 14.3747 29.325 15.2585C31.4599 16.1423 33.2228 17.7401 34.3132 19.7795C35.4037 21.8189 35.7543 24.1739 35.3052 26.4431C34.8562 28.7123 33.6353 30.7555 31.8506 32.2244C30.0659 33.6933 27.8278 34.4972 25.5176 34.499Z" />
+    </svg>
+  );
+}
+
+function GroupSVG() {
+  return (
+    <svg
+      width="50"
+      height="50"
+      viewBox="0 0 50 50"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <circle cx="25" cy="25" r="25" />
+      <path
+        d="M36.2643 33.4893C37.0473 32.4397 37.5845 31.2278 37.8365 29.9428C38.0885 28.6579 38.0488 27.3328 37.7202 26.0652C37.3916 24.7977 36.7827 23.6201 35.9382 22.6194C35.0938 21.6187 34.0354 20.8204 32.8412 20.2834C32.5811 18.7868 31.9833 17.3692 31.0932 16.1382C30.2032 14.9073 29.0442 13.8954 27.7045 13.1795C26.3648 12.4636 24.8795 12.0626 23.3616 12.0067C21.8436 11.9509 20.3329 12.2419 18.9443 12.8575C17.5556 13.4731 16.3255 14.3971 15.3475 15.5594C14.3694 16.7216 13.6692 18.0915 13.2999 19.565C12.9306 21.0385 12.902 22.5768 13.2163 24.063C13.5305 25.5492 14.1794 26.9441 15.1136 28.142L13.3771 29.8661C13.2037 30.0418 13.0863 30.2649 13.0396 30.5072C12.9929 30.7496 13.0191 31.0004 13.1147 31.2279C13.2084 31.4561 13.3676 31.6514 13.5721 31.7892C13.7767 31.9271 14.0174 32.0013 14.2641 32.0025H21.3726C22.0805 33.495 23.1967 34.7565 24.5918 35.6409C25.9869 36.5254 27.6039 36.9966 29.2557 37H36.7516C36.9982 36.9988 37.239 36.9246 37.4435 36.7867C37.648 36.6489 37.8072 36.4535 37.9009 36.2254C37.9966 35.9979 38.0227 35.7471 37.976 35.5047C37.9293 35.2624 37.8119 35.0393 37.6386 34.8636L36.2643 33.4893ZM20.5106 28.2544C20.5123 28.6728 20.5457 29.0904 20.6105 29.5038H17.2749L17.7122 29.079C17.8293 28.9628 17.9222 28.8247 17.9856 28.6724C18.0491 28.5202 18.0817 28.3569 18.0817 28.1919C18.0817 28.027 18.0491 27.8637 17.9856 27.7115C17.9222 27.5592 17.8293 27.421 17.7122 27.3049C17.012 26.6124 16.4569 25.7872 16.0794 24.8776C15.7019 23.9681 15.5094 22.9923 15.5134 22.0075C15.5134 20.0194 16.3031 18.1127 17.7089 16.7069C19.1146 15.3011 21.0212 14.5113 23.0092 14.5113C24.5605 14.502 26.0756 14.9791 27.3417 15.8755C28.6078 16.7719 29.5612 18.0425 30.0678 19.5088C29.7929 19.5088 29.5306 19.5088 29.2557 19.5088C26.9364 19.5088 24.712 20.4302 23.072 22.0703C21.432 23.7104 20.5106 25.9349 20.5106 28.2544ZM33.6783 34.5013L33.7407 34.5637H29.2557C27.8107 34.5611 26.4113 34.0576 25.2958 33.1389C24.1804 32.2203 23.418 30.9432 23.1384 29.5254C22.8588 28.1076 23.0794 26.6368 23.7626 25.3634C24.4458 24.09 25.5494 23.0929 26.8852 22.5419C28.2211 21.9909 29.7067 21.9202 31.0889 22.3417C32.4711 22.7632 33.6644 23.6509 34.4655 24.8535C35.2666 26.0562 35.6261 27.4995 35.4825 28.9374C35.339 30.3754 34.7013 31.7191 33.6783 32.7396C33.4429 32.9703 33.3082 33.2847 33.3035 33.6142C33.3042 33.7795 33.3376 33.943 33.402 34.0953C33.4663 34.2476 33.5602 34.3855 33.6783 34.5013Z"
+        fill="white"
+      />
+    </svg>
+  );
+}
+function ProjectSVG() {
+  return (
+    <svg
+      width="50"
+      height="50"
+      viewBox="0 0 50 50"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <circle cx="25" cy="25" r="25" />
+      <path
+        d="M28.453 13H15.6614C14.9538 13.0026 14.2761 13.2858 13.7771 13.7876C13.2781 14.2894 12.9986 14.9687 13 15.6763V29.8674C12.9984 30.0058 13.051 30.1393 13.1465 30.2394L18.847 36.1173C18.8962 36.169 18.9553 36.2102 19.0207 36.2386C19.0862 36.267 19.1567 36.2819 19.228 36.2825H28.453C29.9253 36.2825 31.1029 35.0784 31.1029 33.6062V15.6763C31.1029 14.2041 29.9253 13 28.453 13ZM18.7139 34.4254L14.7879 30.4085H18.16C18.4545 30.4085 18.7139 30.641 18.7139 30.9354V34.4254ZM30.0349 33.6062C30.037 33.8153 29.998 34.0227 29.9199 34.2167C29.8419 34.4107 29.7264 34.5874 29.5801 34.7367C29.4338 34.8861 29.2594 35.0051 29.0671 35.0871C28.8747 35.1691 28.6681 35.2124 28.459 35.2145H19.7819V30.9354C19.7819 30.0521 19.0434 29.3405 18.16 29.3405H14.0681V15.6763C14.0664 15.2518 14.2332 14.8441 14.532 14.5425C14.8307 14.241 15.2369 14.0703 15.6614 14.068H28.453C28.8752 14.0707 29.2791 14.241 29.5757 14.5414C29.8724 14.8418 30.0376 15.2478 30.035 15.67V33.6062H30.0349Z"
+        fill="#4B535B"
+      />
+      <path
+        d="M27.2992 19.942H17.1424C17.0008 19.942 16.865 19.9983 16.7648 20.0985C16.6647 20.1986 16.6084 20.3344 16.6084 20.476C16.6084 20.6177 16.6647 20.7535 16.7648 20.8536C16.865 20.9538 17.0008 21.0101 17.1424 21.0101H27.2992C27.4409 21.0101 27.5767 20.9538 27.6768 20.8536C27.777 20.7535 27.8333 20.6177 27.8333 20.476C27.8333 20.3344 27.777 20.1986 27.6768 20.0985C27.5767 19.9983 27.4409 19.942 27.2992 19.942Z"
+        fill="#4B535B"
+      />
+      <path
+        d="M27.2992 23.1461H17.1424C17.0008 23.1461 16.865 23.2023 16.7648 23.3025C16.6647 23.4026 16.6084 23.5384 16.6084 23.6801C16.6084 23.8217 16.6647 23.9575 16.7648 24.0577C16.865 24.1578 17.0008 24.2141 17.1424 24.2141H27.2992C27.4409 24.2141 27.5767 24.1578 27.6768 24.0577C27.777 23.9575 27.8333 23.8217 27.8333 23.6801C27.8333 23.5384 27.777 23.4026 27.6768 23.3025C27.5767 23.2023 27.4409 23.1461 27.2992 23.1461Z"
+        fill="#4B535B"
+      />
+      <path
+        d="M27.2992 26.3501H17.1424C17.0008 26.3501 16.865 26.4063 16.7648 26.5065C16.6647 26.6066 16.6084 26.7424 16.6084 26.8841C16.6084 27.0257 16.6647 27.1615 16.7648 27.2617C16.865 27.3618 17.0008 27.4181 17.1424 27.4181H27.2992C27.4409 27.4181 27.5767 27.3618 27.6768 27.2617C27.777 27.1615 27.8333 27.0257 27.8333 26.8841C27.8333 26.7424 27.777 26.6066 27.6768 26.5065C27.5767 26.4063 27.4409 26.3501 27.2992 26.3501Z"
+        fill="#4B535B"
+      />
+      <path
+        d="M17.1424 18.0196H21.8317C21.9733 18.0196 22.1091 17.9634 22.2093 17.8632C22.3094 17.7631 22.3657 17.6273 22.3657 17.4856C22.3657 17.344 22.3094 17.2082 22.2093 17.108C22.1091 17.0079 21.9733 16.9516 21.8317 16.9516H17.1424C17.0008 16.9516 16.865 17.0079 16.7648 17.108C16.6647 17.2082 16.6084 17.344 16.6084 17.4856C16.6084 17.6273 16.6647 17.7631 16.7648 17.8632C16.865 17.9634 17.0008 18.0196 17.1424 18.0196Z"
+        fill="#4B535B"
+      />
+      <path
+        d="M35.6122 13.5244C34.9823 13.5252 34.3785 13.7757 33.9329 14.2209C33.4874 14.6661 33.2365 15.2698 33.2353 15.8996L33.2246 32.0265C33.2246 32.1124 33.2452 32.197 33.2848 32.2732L35.1384 35.8382C35.1835 35.9249 35.2516 35.9975 35.3351 36.0483C35.4186 36.099 35.5145 36.1258 35.6122 36.1258C35.7099 36.1258 35.8058 36.099 35.8893 36.0483C35.9729 35.9975 36.0409 35.9249 36.086 35.8382L37.9396 32.2732C37.9792 32.197 37.9999 32.1124 37.9998 32.0265L37.9891 15.8996C37.9879 15.2698 37.737 14.6661 37.2914 14.2209C36.8459 13.7757 36.242 13.5252 35.6122 13.5244ZM36.9232 18.9274H34.3012L34.3015 18.3934H36.9227L36.9232 18.9274ZM36.9239 19.9954L36.9314 31.4765H34.293L34.3006 19.9954H36.9239ZM35.6123 14.5924C35.9592 14.5929 36.2917 14.7309 36.5371 14.9761C36.7824 15.2214 36.9205 15.5539 36.9212 15.9008L36.9221 17.3254H34.3024L34.3033 15.9006C34.304 15.5537 34.4421 15.2213 34.6875 14.9761C34.9328 14.7309 35.2654 14.5929 35.6123 14.5924ZM35.6123 34.4179L34.6382 32.5445H36.5862L35.6123 34.4179Z"
+        fill="#4B535B"
+      />
+    </svg>
+  );
+}
+function MicasaSVG() {
+  return (
+    <svg width="50" height="50" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="25" cy="25" r="25" fill="#212529" />
+      <path
+        d="M23.539 36.2888H18.2174C16.4931 36.2825 15.095 34.8896 15.0824 33.1653V22.58C15.0857 22.0027 15.344 21.4565 15.788 21.0876L16.7251 20.3935C17.0672 20.029 17.102 19.4729 16.808 19.0686C16.5139 18.6643 15.9741 18.526 15.522 18.7392L14.5618 19.4565C13.5932 20.2059 13.0184 21.3555 13 22.58V33.1768C13.0064 36.0557 15.3386 38.3879 18.2174 38.3943H23.539C24.114 38.3943 24.5802 37.9281 24.5802 37.3531C24.5802 36.7781 24.114 36.3119 23.539 36.3119V36.2888Z"
+        fill="#4B535B"
+      />
+      <path
+        d="M37.9999 22.5568C37.9877 21.3413 37.4316 20.1952 36.4844 19.4333L28.4905 13.059C26.7338 11.647 24.2314 11.647 22.4748 13.059L19.9413 14.8984C19.4653 15.2402 19.3565 15.9032 19.6983 16.3792C20.0401 16.8552 20.7031 16.964 21.1791 16.6221L23.7473 14.7018C24.7554 13.8719 26.2099 13.8719 27.2179 14.7018L35.2118 21.0761C35.6719 21.4408 35.9437 21.9929 35.9522 22.58V33.1768C35.9522 34.9019 34.5538 36.3004 32.8287 36.3004H30.4571C30.2143 36.3004 30.0175 36.1035 30.0175 35.8607V31.0829C30.0175 29.5604 28.7867 28.3244 27.2642 28.318H23.7936C23.0603 28.318 22.357 28.6093 21.8385 29.1278C21.32 29.6464 21.0287 30.3496 21.0287 31.0829V32.9108C21.0287 33.4858 21.4949 33.9519 22.0699 33.9519C22.6449 33.9519 23.1111 33.4858 23.1111 32.9108V31.0829C23.1079 30.903 23.1773 30.7293 23.3034 30.601C23.4296 30.4726 23.6021 30.4003 23.782 30.4004H27.2526C27.6232 30.4004 27.9236 30.7008 27.9236 31.0713V35.8607C27.93 37.2555 29.0624 38.3827 30.4571 38.3827H32.7708C35.6524 38.3827 37.9883 36.0468 37.9883 33.1653L37.9999 22.5568Z"
+        fill="#4B535B"
+      />
+    </svg>
+  );
+}
+function MoonSVG() {
+  return (
+    <svg
+      width="50"
+      height="50"
+      viewBox="0 0 50 50"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <circle cx="25" cy="25" r="25" />
+      <path
+        d="M35.5417 26.5417C35.3913 26.4174 35.2091 26.3378 35.0157 26.312C34.8223 26.2863 34.6256 26.3153 34.4479 26.3958C33.3465 26.8999 32.1488 27.1593 30.9375 27.1563C28.6967 27.1536 26.5479 26.2651 24.9595 24.6845C23.3712 23.1039 22.4721 20.9595 22.4584 18.7188C22.4631 18.0165 22.5505 17.3173 22.7188 16.6354C22.7545 16.4537 22.7411 16.2657 22.68 16.0909C22.6189 15.9161 22.5122 15.7607 22.3711 15.6408C22.23 15.5209 22.0594 15.4407 21.877 15.4087C21.6946 15.3766 21.5069 15.3938 21.3334 15.4583C19.7004 16.1926 18.2808 17.33 17.2081 18.7635C16.1354 20.1971 15.4447 21.8798 15.2009 23.6536C14.9571 25.4275 15.1683 27.2341 15.8145 28.9039C16.4607 30.5737 17.5208 32.0519 18.8951 33.1995C20.2695 34.3471 21.913 35.1264 23.6713 35.4644C25.4296 35.8024 27.245 35.6878 28.9468 35.1315C30.6487 34.5752 32.1812 33.5954 33.4004 32.2841C34.6196 30.9729 35.4855 29.3732 35.9167 27.6354C35.9692 27.4365 35.9616 27.2264 35.8949 27.0317C35.8281 26.8371 35.7052 26.6666 35.5417 26.5417ZM25.6459 33.5104C23.8977 33.4981 22.1961 32.9457 20.774 31.9289C19.3519 30.9121 18.2788 29.4806 17.7018 27.8304C17.1247 26.1801 17.0718 24.3919 17.5504 22.7104C18.0289 21.029 19.0155 19.5366 20.375 18.4375V18.7188C20.3778 21.5193 21.4915 24.2043 23.4718 26.1845C25.452 28.1648 28.137 29.2785 30.9375 29.2813C31.6728 29.284 32.4062 29.2071 33.125 29.0521C32.4062 30.412 31.3297 31.5499 30.0116 32.3429C28.6936 33.1359 27.1841 33.554 25.6459 33.5521V33.5104Z"
+        fill="#4B535B"
+      />
+    </svg>
+  );
+}
+
+function DropdownItem({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      role="menuitem"
+      className="
+        w-full flex items-center gap-3
+        px-3 py-2 rounded-lg
+        text-white/90 text-[13px]
+        hover:bg-white/5 transition
+      "
+    >
+      <span className="w-5 grid place-items-center">{icon}</span>
+      <span className="truncate">{label}</span>
+    </button>
+  );
+}
+
+function UserIcon(props: any) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4" {...props}>
+      <path d="M12 12a5 5 0 100-10 5 5 0 000 10zm-9 9a9 9 0 1118 0H3z" />
+    </svg>
+  );
+}
+function GearIcon(props: any) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4" {...props}>
+      <path d="M19.14 12.94a7.49 7.49 0 000-1.88l2.03-1.58a.5.5 0 00.12-.64l-1.92-3.32a.5.5 0 00-.6-.22l-2.39.96c-.5-.38-1.05-.69-1.62-.94l-.36-2.54a.5.5 0 00-.5-.42h-3.84a.5.5 0 00-.5.42l-.36 2.54c-.57.25-1.12.56-1.62.94l-2.39-.96a.5.5 0 00-.6.22L2.7 8.84a.5.5 0 00.12.64l2.03 1.58a7.49 7.49 0 000 1.88L2.82 14.5a.5.5 0 00-.12.64l1.92 3.32a.5.5 0 00.6.22l2.39-.96c.5.38 1.05.69 1.62.94l.36 2.54a.5.5 0 00.5.42h3.84a.5.5 0 00.5-.42l.36-2.54c.57-.25 1.12-.56 1.62-.94l2.39.96a.5.5 0 00.6-.22l1.92-3.32a.5.5 0 00-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1115.5 12 3.5 3.5 0 0112 15.5z" />
+    </svg>
+  );
+}
+function LockIcon(props: any) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4" {...props}>
+      <path d="M17 8V7a5 5 0 10-10 0v1H5v12h14V8h-2zm-8-1a3 3 0 016 0v1H9V7zm8 11H7V10h10v8z" />
+    </svg>
+  );
+}
+function LogoutIcon(props: any) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4" {...props}>
+      <path d="M16 13v-2H7V8l-5 4 5 4v-3zM20 3h-8v2h8v14h-8v2h8a2 2 0 002-2V5a2 2 0 00-2-2z" />
+    </svg>
+  );
+}

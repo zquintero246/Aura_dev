@@ -1,0 +1,7 @@
+{
+  "temperature": 23.4,
+  "humidity": 56,
+  "condition": "Parcialmente nublado",
+  "air_quality_index": 42,
+  "source": "mocked-microservice"
+}

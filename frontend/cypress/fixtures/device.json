@@ -1,0 +1,18 @@
+{
+  "devices": [
+    {
+      "id": "light-1",
+      "name": "Lámpara Sala",
+      "type": "light",
+      "protocol": "zigbee",
+      "is_on": true
+    },
+    {
+      "id": "thermostat-1",
+      "name": "Termostato Principal",
+      "type": "thermostat",
+      "protocol": "wifi",
+      "is_on": false
+    }
+  ]
+}

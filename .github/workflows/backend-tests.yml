@@ -1,4 +1,4 @@
-name: CI
+name: Backend CI
 
 on:
   push:
@@ -27,7 +27,7 @@ env:
   MONGO_DB_PASSWORD: aura_pass
 
 jobs:
-  ci:
+  backend:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -51,17 +51,12 @@ jobs:
           MONGO_INITDB_DATABASE: aura_chat
         ports:
           - 27017:27017
-        options: >-
-          --health-cmd "mongosh --quiet --host 127.0.0.1 --port 27017 --username aura_admin --password aura_pass --authenticationDatabase admin --eval 'db.adminCommand(\"ping\")'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up PHP 8.2
-        uses: shivammathur/setup-php@v4
+        uses: shivammathur/setup-php@v2
         with:
           php-version: 8.2
           extensions: mbstring, bcmath, openssl
@@ -74,9 +69,7 @@ jobs:
           cache: npm
 
       - name: Install database clients
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client mongodb-clients netcat
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client netcat-openbsd
 
       - name: Wait for PostgreSQL
         env:
@@ -94,7 +87,7 @@ jobs:
       - name: Wait for MongoDB
         run: |
           for i in {1..60}; do
-            if mongo --quiet --host 127.0.0.1 --port 27017 --username aura_admin --password aura_pass --authenticationDatabase admin --eval 'db.adminCommand("ping")'; then
+            if nc -z 127.0.0.1 27017; then
               exit 0
             fi
             sleep 1
@@ -118,8 +111,8 @@ jobs:
       - name: Install Laravel node dependencies
         run: npm ci --prefix backend
 
-      - name: Install frontend dependencies
-        run: npm ci --prefix frontend
+      - name: Prepare testing env
+        run: cp backend/.env.testing backend/.env
 
       - name: Generate Laravel key
         working-directory: backend
@@ -132,9 +125,3 @@ jobs:
       - name: Run Laravel tests
         working-directory: backend
         run: php artisan test --env=testing
-
-      - name: Run frontend tests
-        run: npm test --prefix frontend
-
-      - name: Build frontend
-        run: npm run build --prefix frontend

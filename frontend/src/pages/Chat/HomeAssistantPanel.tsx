@@ -1,14 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getMyLocation } from '../../lib/location';
+import { getMyLocation } from '@/lib/location';
 import {
   fetchDashboardByUser,
   fetchDashboardByCoords,
   type WeatherData,
-} from '../../lib/weatherApi';
-import { me } from '../../lib/auth';
-import HomeRegistration from './HomeRegistration';
-import { fetchWeatherHistory, wmoToText, type HistoryPoint } from '../../lib/weatherHistory';
-import { listDevices, powerDevice, updateDevice, type Device } from '../../lib/devices';
+} from '@/lib/weatherApi';
+import { me } from '@/lib/auth';
+import HomeRegistration from '@/pages/Chat/HomeRegistration';
+import { fetchWeatherHistory, wmoToText, type HistoryPoint } from '@/lib/weatherHistory';
+import { listDevices, powerDevice, updateDevice, type Device } from '@/lib/devices';
 import {
   WiThermometer,
   WiHumidity,
@@ -1161,7 +1161,7 @@ export default function HomeAssistantPanel() {
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                {(devices && devices.length ? devices : seedSimDevices()).map((d) => {
+                {(devices && devices.length ? devices : seedSimDevices()).map((d: Device) => {
                   const metric = getMetricFor(d);
                   if (!metric) return null;
                   const second = extraSeriesFor(d)[0] || null;
@@ -2551,263 +2551,6 @@ function DeviceCard({
   }, []);
 
   // Local simulated devices fallback (when microservice is down/empty)
-  function seedSimDevices(): Device[] {
-    return [
-      {
-        id: 'sim-zigbee',
-        name: 'Zigbee Coordinator',
-        type: 'coordinator',
-        is_on: true,
-        connected_devices: 3,
-        network_channel: 15,
-      } as any,
-      {
-        id: 'sim-zwave',
-        name: 'Z-Wave Controller',
-        type: 'controller',
-        is_on: true,
-        node_count: 5,
-        region: 'EU',
-      } as any,
-      {
-        id: 'sim-aq-door',
-        name: 'Aqara Door/Window',
-        type: 'contact_sensor',
-        is_on: true,
-        opened: false,
-      } as any,
-      {
-        id: 'sim-aq-motion',
-        name: 'Aqara Motion',
-        type: 'motion_sensor',
-        is_on: true,
-        motion_detected: false,
-        occupancy_timeout_s: 60,
-        lux: 50,
-      } as any,
-      { id: 'sim-shelly', name: 'Shelly Plus 1', type: 'relay', is_on: true, power_w: 0 } as any,
-      {
-        id: 'sim-kasa',
-        name: 'TP-Link Kasa Plug',
-        type: 'smart_plug',
-        is_on: true,
-        power_w: 5.0,
-        voltage_v: 120.0,
-      } as any,
-      {
-        id: 'sim-hue',
-        name: 'Philips Hue Bulb',
-        type: 'light_bulb',
-        is_on: true,
-        brightness: 50,
-        color_temp: 3000,
-      } as any,
-      {
-        id: 'sim-ecobee',
-        name: 'Ecobee Thermostat',
-        type: 'thermostat',
-        is_on: true,
-        hvac_mode: 'auto',
-        current_c: 22.0,
-        target_c: 22.0,
-      } as any,
-      {
-        id: 'sim-chromecast',
-        name: 'Google Chromecast',
-        type: 'chromecast',
-        is_on: true,
-        playback_state: 'idle',
-        app_name: 'Idle',
-        volume: 50,
-      } as any,
-      {
-        id: 'sim-sonos',
-        name: 'Sonos Speaker',
-        type: 'speaker',
-        is_on: true,
-        playback_state: 'stopped',
-        volume: 30,
-        muted: false,
-      } as any,
-    ];
-  }
-
-  // Detect if we are using local simulated devices
-  useEffect(() => {
-    setSimMode((devices || []).some((d) => String(d.id).startsWith('sim-')));
-  }, [devices]);
-
-  // Frontend-only simulation tick for fallback devices
-  useEffect(() => {
-    if (!simMode) return;
-    const iv = window.setInterval(() => {
-      setDevices((prev) => simulateLocalTick(prev));
-    }, 2000);
-    return () => window.clearInterval(iv);
-  }, [simMode]);
-
-  function clamp(n: number, lo: number, hi: number) {
-    return Math.max(lo, Math.min(hi, n));
-  }
-
-  function simulateLocalTick(prev: Device[]): Device[] {
-    const now = new Date().toISOString();
-    return prev.map((d) => {
-      if (!String(d.id).startsWith('sim-')) return d;
-      const t = String(d.type || '');
-      const on = !!d.is_on;
-      const next: any = { ...d, last_seen: now };
-      switch (t) {
-        case 'light_bulb':
-          if (on)
-            next.brightness = clamp(
-              Math.round((next.brightness ?? 50) + (Math.random() * 10 - 5)),
-              0,
-              100
-            );
-          break;
-        case 'smart_plug':
-          next.power_w = on ? clamp((next.power_w ?? 0) + Math.random() * 5, 0, 100) : 0;
-          next.voltage_v = clamp((next.voltage_v ?? 120) + (Math.random() - 0.5), 100, 240);
-          break;
-        case 'relay':
-          // keep as is; could flip power_w slightly
-          next.power_w = on ? clamp((next.power_w ?? 0) + (Math.random() - 0.5) * 2, 0, 50) : 0;
-          break;
-        case 'contact_sensor':
-          if (on && Math.random() < 0.05) next.opened = !next.opened;
-          break;
-        case 'motion_sensor':
-          if (on) {
-            if (Math.random() < 0.1) next.motion_detected = true;
-            else if (Math.random() < 0.3) next.motion_detected = false;
-            next.lux = clamp((next.lux ?? 50) + (Math.random() * 10 - 5), 0, 1000);
-          }
-          break;
-        case 'thermostat':
-          if (on && next.hvac_mode !== 'off') {
-            const cur = Number(next.current_c ?? 22);
-            const tgt = Number(next.target_c ?? 22);
-            const delta = tgt - cur;
-            next.current_c = Math.round((cur + clamp(delta * 0.1, -0.2, 0.2)) * 10) / 10;
-          } else {
-            next.current_c =
-              Math.round(((next.current_c ?? 22) + (Math.random() * 0.1 - 0.05)) * 10) / 10;
-          }
-          break;
-        case 'chromecast':
-          if (on && Math.random() < 0.05) {
-            next.playback_state = ['playing', 'paused', 'idle'][Math.floor(Math.random() * 3)];
-            next.app_name =
-              next.playback_state === 'idle'
-                ? 'Idle'
-                : ['YouTube', 'Netflix', 'Spotify'][Math.floor(Math.random() * 3)];
-          }
-          break;
-        case 'speaker':
-          if (on && Math.random() < 0.05)
-            next.playback_state = ['playing', 'paused', 'stopped'][Math.floor(Math.random() * 3)];
-          break;
-        case 'coordinator':
-          if (on)
-            next.connected_devices = clamp(
-              (next.connected_devices ?? 0) + Math.floor(Math.random() * 5) - 2,
-              0,
-              5000
-            );
-          break;
-        case 'controller':
-          if (on)
-            next.node_count = clamp(
-              (next.node_count ?? 0) + Math.floor(Math.random() * 3) - 1,
-              0,
-              5000
-            );
-          break;
-      }
-      return next as Device;
-    });
-  }
-  // Local simulated devices fallback (when microservice is down/empty)
-  function seedSimDevices(): Device[] {
-    return [
-      {
-        id: 'sim-zigbee',
-        name: 'Zigbee Coordinator',
-        type: 'coordinator',
-        is_on: true,
-        connected_devices: 3,
-        network_channel: 15,
-      },
-      {
-        id: 'sim-zwave',
-        name: 'Z-Wave Controller',
-        type: 'controller',
-        is_on: true,
-        node_count: 5,
-        region: 'EU',
-      },
-      {
-        id: 'sim-aq-door',
-        name: 'Aqara Door/Window',
-        type: 'contact_sensor',
-        is_on: true,
-        opened: false,
-      },
-      {
-        id: 'sim-aq-motion',
-        name: 'Aqara Motion',
-        type: 'motion_sensor',
-        is_on: true,
-        motion_detected: false,
-        occupancy_timeout_s: 60,
-      },
-      { id: 'sim-shelly', name: 'Shelly Plus 1', type: 'relay', is_on: true, power_w: 0 },
-      {
-        id: 'sim-kasa',
-        name: 'TP-Link Kasa Plug',
-        type: 'smart_plug',
-        is_on: true,
-        power_w: 5.0,
-        voltage_v: 120.0,
-      },
-      {
-        id: 'sim-hue',
-        name: 'Philips Hue Bulb',
-        type: 'light_bulb',
-        is_on: true,
-        brightness: 50,
-        color_temp: 3000,
-      },
-      {
-        id: 'sim-ecobee',
-        name: 'Ecobee Thermostat',
-        type: 'thermostat',
-        is_on: true,
-        hvac_mode: 'auto',
-        current_c: 22.0,
-        target_c: 22.0,
-      },
-      {
-        id: 'sim-chromecast',
-        name: 'Google Chromecast',
-        type: 'chromecast',
-        is_on: true,
-        playback_state: 'idle',
-        app_name: 'Idle',
-        volume: 50,
-      },
-      {
-        id: 'sim-sonos',
-        name: 'Sonos Speaker',
-        type: 'speaker',
-        is_on: true,
-        playback_state: 'stopped',
-        volume: 30,
-        muted: false,
-      },
-    ] as unknown as Device[];
-  }
   const icon = (() => {
     switch (d.type) {
       case 'light_bulb':
@@ -3560,3 +3303,88 @@ const persistLocal = (d: Device) => {
     localStorage.setItem(deviceLastKey(String(d.id)), JSON.stringify(d));
   } catch {}
 };
+
+function seedSimDevices(): Device[] {
+  return [
+    {
+      id: 'sim-zigbee',
+      name: 'Zigbee Coordinator',
+      type: 'coordinator',
+      is_on: true,
+      connected_devices: 3,
+      network_channel: 15,
+    },
+    {
+      id: 'sim-zwave',
+      name: 'Z-Wave Controller',
+      type: 'controller',
+      is_on: true,
+      node_count: 5,
+      region: 'EU',
+    },
+    {
+      id: 'sim-aq-door',
+      name: 'Aqara Door/Window',
+      type: 'contact_sensor',
+      is_on: true,
+      opened: false,
+    },
+    {
+      id: 'sim-aq-motion',
+      name: 'Aqara Motion',
+      type: 'motion_sensor',
+      is_on: true,
+      motion_detected: false,
+      occupancy_timeout_s: 60,
+      lux: 50,
+    },
+    { id: 'sim-shelly', name: 'Shelly Plus 1', type: 'relay', is_on: true, power_w: 0 },
+    {
+      id: 'sim-kasa',
+      name: 'TP-Link Kasa Plug',
+      type: 'smart_plug',
+      is_on: true,
+      power_w: 5.0,
+      voltage_v: 120.0,
+    },
+    {
+      id: 'sim-hue',
+      name: 'Philips Hue Bulb',
+      type: 'light_bulb',
+      is_on: true,
+      brightness: 50,
+      color_temp: 3000,
+    },
+    {
+      id: 'sim-speaker',
+      name: 'Sonos Speaker',
+      type: 'speaker',
+      is_on: true,
+      playback_state: 'idle',
+    },
+    {
+      id: 'sim-motion',
+      name: 'Motion Sensor',
+      type: 'motion_sensor',
+      is_on: true,
+      motion_detected: false,
+      occupancy_timeout_s: 90,
+      lux: 12,
+    },
+    {
+      id: 'sim-thermostat',
+      name: 'Ecobee Thermostat',
+      type: 'thermostat',
+      is_on: true,
+      target_c: 21,
+      temperature: 20,
+    },
+    {
+      id: 'sim-camera',
+      name: 'Home Camera',
+      type: 'camera',
+      is_on: true,
+      last_activity: new Date().toISOString(),
+    },
+  ];
+}

@@ -548,7 +548,7 @@ function highlight(code: string, lang: LangKey): string {
         (_, open, tag, attrs, close) => {
           const attrColored = attrs.replace(
             /([a-zA-Z_:][-a-zA-Z0-9_:.]*)(=)(&quot;[^&]*&quot;|[^\s>&]+)/g,
-            (m, a, eq, v) => `${span('prop', a)}${eq}${span('str', v)}`
+            (m: any, a: any, eq: any, v: any) => `${span('prop', a)}${eq}${span('str', v)}`
           );
           return `${open}${span('tag', tag)}${attrColored}${close}`;
         }

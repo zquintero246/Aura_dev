@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { logout as apiLogout } from '../../lib/auth';
+import { logout as apiLogout } from '@/lib/auth';
 
 /** Tipos opcionales para tus listas (mock por ahora) */
 export type ChatItem = { id: string; title: string };

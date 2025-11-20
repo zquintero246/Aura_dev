@@ -1,12 +1,12 @@
 import React from 'react';
-import { AuroraText } from '../../components/ui/aurora-text';
-import { cn } from '../../lib/utils';
-import { AnimatedShinyText } from '../../components/ui/animated-shiny-text';
-import { SparklesText } from '../../components/ui/sparkles-text';
+import { AuroraText } from '@/components/ui/aurora-text';
+import { cn } from '@/lib/utils';
+import { AnimatedShinyText } from '@/components/ui/animated-shiny-text';
+import { SparklesText } from '@/components/ui/sparkles-text';
 import { Link } from 'react-router-dom';
-import { HeroVideoDialog } from '../../components/ui/hero-video-dialog';
+import { HeroVideoDialog } from '@/components/ui/hero-video-dialog';
 import { main } from 'motion/react-client';
-import DotGrid from '../../components/ui/DotGrid';
+import DotGrid from '@/components/ui/DotGrid';
 
 interface HeroSectionProps {
   className?: string;

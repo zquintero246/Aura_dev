@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { me } from '../lib/auth';
+import { me } from '@/lib/auth';
 
 type Props = { children: React.ReactElement };
 

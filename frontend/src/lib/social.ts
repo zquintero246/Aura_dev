@@ -4,6 +4,7 @@ export type SocialAuthPayload = {
   action: 'auth-complete' | string;
   redirect?: string;
   token?: string | null;
+  email_verified_at?: string | null;
 };
 
 function openCenteredPopup(url: string, title = 'Auth', w = 600, h = 700) {

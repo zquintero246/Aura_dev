@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { Link } from 'react-router-dom';
-import Button from './components/ui/Button';
-import EditText from './components/ui/EditText';
-import Squares from './components/ui/Squares';
-import Particles from './components/ui/Particles';
+import Button from '@/pages/Authentication/components/ui/Button';
+import EditText from '@/pages/Authentication/components/ui/EditText';
+import Squares from '@/pages/Authentication/components/ui/Squares';
+import Particles from '@/pages/Authentication/components/ui/Particles';
 import { useNavigate } from 'react-router-dom';
-import { register as apiRegister } from '../../lib/auth';
-import { socialLogin } from '../../lib/social';
+import { register as apiRegister } from '@/lib/auth';
+import { socialLogin } from '@/lib/social';
 
 const Register = () => {
   const [name, setName] = useState('');
@@ -117,12 +117,12 @@ const Register = () => {
               <div className="px-6 sm:px-8 md:px-10 py-8">
                 <div className="max-w-[460px] mx-auto">
                   <label htmlFor="name" className="block text-[15px] font-semibold text-white mb-2">Nombre</label>
-                  <EditText id="name" type="text" value={name} onChange={(e) => setName(e?.target?.value)} className="w-full h-12 rounded-[10px] bg-white/5 text-white placeholder:text-white/40 ring-1 ring-white/10 focus:ring-2 focus:ring-[#8B3DFF6e] transition-shadow px-5 py-3" padding="16px" />
+                  <EditText id="name" type="text" value={name} onChange={(e: any) => setName(e?.target?.value)} className="w-full h-12 rounded-[10px] bg-white/5 text-white placeholder:text-white/40 ring-1 ring-white/10 focus:ring-2 focus:ring-[#8B3DFF6e] transition-shadow px-5 py-3" padding="16px" />
                 </div>
 
                 <div className="max-w-[460px] mx-auto mt-7">
                   <label htmlFor="email" className="block text-[15px] font-semibold text-white mb-2">Email</label>
-                  <EditText id="email" type="email" value={email} onChange={(e) => setEmail(e?.target?.value)} className="w-full h-12 rounded-[10px] bg-white/5 text-white placeholder:text-white/40 ring-1 ring-white/10 focus:ring-2 focus:ring-[#8B3DFF6e] transition-shadow px-5 py-3" padding="16px" />
+                  <EditText id="email" type="email" value={email} onChange={(e: any) => setEmail(e?.target?.value)} className="w-full h-12 rounded-[10px] bg-white/5 text-white placeholder:text-white/40 ring-1 ring-white/10 focus:ring-2 focus:ring-[#8B3DFF6e] transition-shadow px-5 py-3" padding="16px" />
                 </div>
 
                 {/* Contraseña */}
@@ -138,7 +138,7 @@ const Register = () => {
                       id="password"
                       type={showPassword ? 'text' : 'password'}
                       value={password}
-                      onChange={(e) => setPassword(e?.target?.value)}
+                      onChange={(e: any) => setPassword(e?.target?.value)}
                       className="w-full h-12 rounded-[10px] bg-white/5 text-white placeholder:text-white/40 ring-1 ring-white/10 focus:ring-2 focus:ring-[#8B3DFF6e] transition-shadow px-5 pr-12 py-3"
                       padding="16px"
                     />
@@ -191,7 +191,7 @@ const Register = () => {
                 {/* Botón principal */}
                 <div className="max-w-[460px] mx-auto mt-7">
                   <label htmlFor="password2" className="block text-[15px] font-semibold text-white mb-2">Confirmar contraseña</label>
-                  <EditText id="password2" type={showPassword ? 'text' : 'password'} value={password2} onChange={(e) => setPassword2(e?.target?.value)} className="w-full h-12 rounded-[10px] bg-white/5 text-white placeholder:text-white/40 ring-1 ring-white/10 focus:ring-2 focus:ring-[#8B3DFF6e] transition-shadow px-5 py-3" padding="16px" />
+                  <EditText id="password2" type={showPassword ? 'text' : 'password'} value={password2} onChange={(e: any) => setPassword2(e?.target?.value)} className="w-full h-12 rounded-[10px] bg-white/5 text-white placeholder:text-white/40 ring-1 ring-white/10 focus:ring-2 focus:ring-[#8B3DFF6e] transition-shadow px-5 py-3" padding="16px" />
                 </div>
 
                 <div className="mt-10 flex justify-center">

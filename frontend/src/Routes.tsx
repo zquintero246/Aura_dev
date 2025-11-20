@@ -1,15 +1,15 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 
-import HomePage from './pages/Home';
-import Register from './pages/Authentication/Register';
-import VerifyEmailPage from './pages/Authentication/VerifyEmailPage';
-import Login from './pages/Authentication/Login';
-import ChatHome from './pages/Chat/AppLayout';
-import RequireVerified from './guards/RequireVerified';
-import RedirectIfVerified from './guards/RedirectIfVerified';
-import Profile from './pages/Account/Profile';
-import ChangePassword from './pages/Account/ChangePassword';
+import HomePage from '@/pages/Home';
+import Register from '@/pages/Authentication/Register';
+import VerifyEmailPage from '@/pages/Authentication/VerifyEmailPage';
+import Login from '@/pages/Authentication/Login';
+import ChatHome from '@/pages/Chat/AppLayout';
+import RequireVerified from '@/guards/RequireVerified';
+import RedirectIfVerified from '@/guards/RedirectIfVerified';
+import Profile from '@/pages/Account/Profile';
+import ChangePassword from '@/pages/Account/ChangePassword';
 
 const AppRoutes = () => {
   return (

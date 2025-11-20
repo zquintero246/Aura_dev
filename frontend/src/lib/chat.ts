@@ -23,7 +23,10 @@ export async function chat(
     try {
       const lastUser = [...messages].reverse().find((m) => m.role === 'user');
       if (conversationId && lastUser?.content) {
-        await persistMessage(conversationId, lastUser.content, 'user', options?.clientMessageId);
+        const persistOpts = options?.clientMessageId
+          ? { clientMessageId: options.clientMessageId }
+          : undefined;
+        await persistMessage(conversationId, lastUser.content, 'user', persistOpts);
         // Optimistic: propose an auto-title from the first user message
         try {
           const firstUser = messages.find((m) => m.role === 'user');

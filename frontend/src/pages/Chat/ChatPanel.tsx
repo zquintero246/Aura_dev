@@ -1,13 +1,13 @@
 ﻿// ChatPanel.tsx (wired to GPT)
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { chat as chatApi, ChatMessage } from '../../lib/chat';
-import type { Conversation } from '../../lib/chatApi';
+import { chat as chatApi, ChatMessage } from '@/lib/chat';
+import type { Conversation } from '@/lib/chatApi';
 
-import { ensureChatToken } from '../../lib/auth';
-import { startConversation as startChatConversation } from '../../lib/chatApi';
-import { listMessages as loadChatHistory, ChatMessageItem } from '../../lib/chatApi';
-import { createConversation, updateConversation } from '../../lib/conversations';
-import MarkdownLite from '../../components/MarkdownLite';
+import { ensureChatToken } from '@/lib/auth';
+import { startConversation as startChatConversation } from '@/lib/chatApi';
+import { listMessages as loadChatHistory, ChatMessageItem } from '@/lib/chatApi';
+import { createConversation, updateConversation } from '@/lib/conversations';
+import MarkdownLite from '@/components/MarkdownLite';
 // (inline svg icons, no external deps)
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

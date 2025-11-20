@@ -1,8 +1,9 @@
 // ChatPage.tsx
 import React, { useEffect, useState } from 'react';
-import ChatPanel from './ChatPanel';
-import ConversationsPanel, { Conversation } from './ConversationsPanel';
-import { listConversations } from '../../lib/conversations';
+import ChatPanel from '@/pages/Chat/ChatPanel';
+import ConversationsPanel from '@/pages/Chat/ConversationsPanel';
+import type { Conversation } from '@/lib/chatApi';
+import { listConversations } from '@/lib/conversations';
 
 export default function ChatPage() {
   const [recent, setRecent] = useState<Conversation[]>([]);

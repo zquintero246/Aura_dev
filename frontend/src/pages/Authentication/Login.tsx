@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { Link, useNavigate } from 'react-router-dom';
-import Button from './components/ui/Button';
-import EditText from './components/ui/EditText';
-import Particles from './components/ui/Particles';
-import { login as apiLogin } from '../../lib/auth';
-import { socialLogin, SocialAuthPayload } from '../../lib/social';
+import Button from '@/pages/Authentication/components/ui/Button';
+import EditText from '@/pages/Authentication/components/ui/EditText';
+import Particles from '@/pages/Authentication/components/ui/Particles';
+import { login as apiLogin } from '@/lib/auth';
+import { socialLogin, SocialAuthPayload } from '@/lib/social';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -134,7 +134,7 @@ const Login = () => {
                     id="email"
                     type="email"
                     value={email}
-                    onChange={(e) => setEmail(e?.target?.value)}
+                    onChange={(e: any) => setEmail(e?.target?.value)}
                     className="w-full h-12 rounded-[10px] bg-white/5 text-white placeholder:text-white/40 ring-1 ring-white/10 focus:ring-2 focus:ring-[#8B3DFF6e] transition-shadow px-5 py-3"
                     padding="16px"
                   />
@@ -153,7 +153,7 @@ const Login = () => {
                       id="password"
                       type={showPassword ? 'text' : 'password'}
                       value={password}
-                      onChange={(e) => setPassword(e?.target?.value)}
+                      onChange={(e: any) => setPassword(e?.target?.value)}
                       className="w-full h-12 rounded-[10px] bg-white/5 text-white placeholder:text-white/40 ring-1 ring-white/10 focus:ring-2 focus:ring-[#8B3DFF6e] transition-shadow px-5 pr-12 py-3"
                       padding="16px"
                     />

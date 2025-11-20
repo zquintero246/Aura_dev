@@ -1,9 +1,5 @@
 import React from 'react';
-
-export type Conversation = {
-  id: string;
-  title: string;
-};
+import type { Conversation } from '@/lib/chatApi';
 
 type Props = {
   /** Conversaciones recientes */
@@ -114,7 +110,7 @@ const ConversationsPanel: React.FC<Props> = ({
             <Row
               key={c.id}
               active={c.id === selectedId}
-              label={c.title}
+              label={c.title || 'Sin título'}
               onClick={() => onSelect?.(c.id)}
               onMenuDelete={() => onDelete?.(c.id)}
               onMenuRename={() => onMenuRename?.(c.id)}

@@ -1,20 +1,21 @@
 ﻿// AppLayout.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import IconRail from './IconRail';
-import ConversationsPanel, { Conversation } from './ConversationsPanel';
-import GroupsPanel, { Group } from './GroupsPanel';
-import MainPanel from './MainPanel';
-import ProfilePanel from '../Account/Profile';
-import ChatPanel from './ChatPanel';
-import { me, logout, User, ensureChatToken } from '../../lib/auth';
-import { setChatToken } from '../../lib/chatApi';
+import IconRail from '@/pages/Chat/IconRail';
+import ConversationsPanel from '@/pages/Chat/ConversationsPanel';
+import GroupsPanel, { Group } from '@/pages/Chat/GroupsPanel';
+import MainPanel from '@/pages/Chat/MainPanel';
+import ProfilePanel from '@/pages/Account/Profile';
+import ChatPanel from '@/pages/Chat/ChatPanel';
+import type { Conversation } from '@/lib/chatApi';
+import { me, logout, User, ensureChatToken } from '@/lib/auth';
+import { setChatToken } from '@/lib/chatApi';
 import { useNavigate } from 'react-router-dom';
 import {
   listConversations,
   deleteConversation as deleteChat,
   createConversation as createConversationOnServer,
   updateConversationTitle as updateConversationTitleOnServer,
-} from '../../lib/conversations';
+} from '@/lib/conversations';
 
 type SectionKey = 'chats' | 'group' | 'project' | 'telemetry';
 

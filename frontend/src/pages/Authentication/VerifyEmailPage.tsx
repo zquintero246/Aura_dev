@@ -4,9 +4,9 @@
 
 import React, { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet';
-import Button from './components/ui/Button';
-import Particles from './components/ui/Particles';
-import { resendVerification, me } from '../../lib/auth';
+import Button from '@/pages/Authentication/components/ui/Button';
+import Particles from '@/pages/Authentication/components/ui/Particles';
+import { resendVerification, me } from '@/lib/auth';
 import { useNavigate } from 'react-router-dom';
 
 export default function VerifyEmailPage() {

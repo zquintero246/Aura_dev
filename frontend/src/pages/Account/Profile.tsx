@@ -1,9 +1,9 @@
 import React, { ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import { Camera, Lock, Mail, Plus } from 'lucide-react';
-import { getMyLocation } from '../../lib/location';
-import type { User } from '../../lib/auth';
-import { updateProfile } from '../../lib/profile';
+import { getMyLocation } from '@/lib/location';
+import type { User } from '@/lib/auth';
+import { updateProfile } from '@/lib/profile';
 
 type Props = {
   name?: string;

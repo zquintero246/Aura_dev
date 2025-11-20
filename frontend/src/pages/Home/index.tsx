@@ -1,9 +1,9 @@
 import React from 'react';
 import { Helmet } from 'react-helmet';
-import Header from '../../components/common/Header';
-import HeroSection from './HeroSection';
-import GradientBlinds from '../../components/GradientBlinds';
-import { GridBeams } from '../../components/grid-beams';
+import Header from '@/components/common/Header';
+import HeroSection from '@/pages/Home/HeroSection';
+import GradientBlinds from '@/components/GradientBlinds';
+import { GridBeams } from '@/components/grid-beams';
 
 const Home = () => {
   return (

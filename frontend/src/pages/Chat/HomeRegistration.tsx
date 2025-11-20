@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { saveLocation } from '../../lib/location';
+import { saveLocation } from '@/lib/location';
 import {
   getLatamCountries,
   getStatesByCountry,
@@ -7,8 +7,8 @@ import {
   getCitiesByCountry,
   getPositionByCity,
   type LatamCountry,
-} from '../../lib/countriesNow';
-import WorldMap from './components/WorldMap';
+} from '@/lib/countriesNow';
+import WorldMap from '@/pages/Chat/components/WorldMap';
 
 type Props = { userId: string; onDone: () => void };
 

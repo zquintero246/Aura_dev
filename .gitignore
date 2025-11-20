@@ -212,3 +212,7 @@ __marimo__/
 #Modelos
 .pt
 /AuraLM/Gpt-2PaperTry/Data
+
+#BD
+mongodb/data
+postgresql/data/

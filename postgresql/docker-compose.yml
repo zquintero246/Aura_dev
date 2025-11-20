@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  aura_postgres:
+    image: postgres:15
+    container_name: aura_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: aura_main
+      POSTGRES_USER: aura_user
+      POSTGRES_PASSWORD: aura_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - aura_network
+
+networks:
+  aura_network:
+    external: true

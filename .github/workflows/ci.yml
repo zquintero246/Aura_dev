@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+env:
+  APP_ENV: testing
+  TEST_ENV_FILE: backend/.env.testing
+  COMPOSER_MEMORY_LIMIT: -1
+  DB_CONNECTION: pgsql
+  DB_HOST: 127.0.0.1
+  DB_PORT: 5432
+  DB_DATABASE: aura_main
+  DB_USERNAME: aura_user
+  DB_PASSWORD: aura_pass
+  MONGO_DB_HOST: 127.0.0.1
+  MONGO_DB_PORT: 27017
+  MONGO_DB_DATABASE: aura_chat
+  MONGO_DB_USERNAME: aura_admin
+  MONGO_DB_PASSWORD: aura_pass
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: aura_main
+          POSTGRES_USER: aura_user
+          POSTGRES_PASSWORD: aura_pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U aura_user"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      mongo:
+        image: mongo:6
+        env:
+          MONGO_INITDB_ROOT_USERNAME: aura_admin
+          MONGO_INITDB_ROOT_PASSWORD: aura_pass
+          MONGO_INITDB_DATABASE: aura_chat
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --host 127.0.0.1 --port 27017 --username aura_admin --password aura_pass --authenticationDatabase admin --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP 8.2
+        uses: shivammathur/setup-php@v4
+        with:
+          php-version: 8.2
+          extensions: mbstring, bcmath, openssl
+          coverage: none
+
+      - name: Set up Node.js 18
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install database clients
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client mongodb-clients netcat
+
+      - name: Wait for PostgreSQL
+        env:
+          PGPASSWORD: aura_pass
+        run: |
+          for i in {1..60}; do
+            if pg_isready -h 127.0.0.1 -p 5432 -U aura_user; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "PostgreSQL did not become ready within the timeout" >&2
+          exit 1
+
+      - name: Wait for MongoDB
+        run: |
+          for i in {1..60}; do
+            if mongo --quiet --host 127.0.0.1 --port 27017 --username aura_admin --password aura_pass --authenticationDatabase admin --eval 'db.adminCommand("ping")'; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "MongoDB did not become ready within the timeout" >&2
+          exit 1
+
+      - name: Validate database ports
+        run: |
+          for port in 5432 27017; do
+            if ! nc -z 127.0.0.1 "$port"; then
+              echo "Database port $port is not reachable"
+              exit 1
+            fi
+          done
+
+      - name: Install PHP dependencies
+        working-directory: backend
+        run: composer install --prefer-dist --no-progress --no-suggest --no-interaction
+
+      - name: Install Laravel node dependencies
+        run: npm ci --prefix backend
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Generate Laravel key
+        working-directory: backend
+        run: php artisan key:generate --force --env=testing
+
+      - name: Run migrations
+        working-directory: backend
+        run: php artisan migrate --force --env=testing
+
+      - name: Run Laravel tests
+        working-directory: backend
+        run: php artisan test --env=testing
+
+      - name: Run frontend tests
+        run: npm test --prefix frontend
+
+      - name: Build frontend
+        run: npm run build --prefix frontend

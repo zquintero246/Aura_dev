@@ -43,6 +43,7 @@
   "scripts": {
     "dev": "vite",
     "start": "vite",
+    "test": "npm run type-check",
     "build": "tsc --noCheck && vite build",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,md,json}\"",
     "preview": "vite preview",

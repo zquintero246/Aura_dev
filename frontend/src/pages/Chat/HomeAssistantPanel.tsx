@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getMyLocation } from '../../lib/location';
 import {
   fetchDashboardByUser,
@@ -139,95 +139,64 @@ export default function HomeAssistantPanel() {
       : '—';
   const condLabel = condText || '—';
 
-  useEffect(() => {
-    (async () => {
+  const loadDashboard = useCallback(
+    async (location: { latitude?: number; longitude?: number } | null, uid: string) => {
+      setHistory(null);
+      if (!location?.latitude || !location?.longitude) {
+        setWx(null);
+        return;
+      }
+      setLoadingDash(true);
       try {
-        const res = await me();
-        const id = res?.user?.id ?? '';
-        setUserId(String(id));
-        let required = true;
-        const h = await getMyLocation();
-        setHome(h || null);
-        required = !h;
-        // fallback local if backend not reachable
-        if (h == null) {
-          const keyReg = id ? `aura:home:registered:${id}` : '';
-          required = keyReg ? localStorage.getItem(keyReg) !== '1' : true;
-        }
-        setNeedsRegistration(required);
-
-        // Fetch dashboard if we have a location
-        if (h) {
-          setLoadingDash(true);
-          const dash =
-            (await fetchDashboardByCoords(Number(h.latitude), Number(h.longitude))) ||
-            (id ? await fetchDashboardByUser(String(id)) : null);
-          setWx(dash);
-          setLoadingDash(false);
-          // Load history for charts
-          try {
-            const his = await fetchWeatherHistory(Number(h.latitude), Number(h.longitude));
-            setHistory(his);
-          } catch (_) {
-            /* ignore */
-          }
-          // Load devices
-          try {
-            const devs = await listDevices();
-            setDevices(
-              Array.isArray(devs) && devs.length > 0 ? withOverrides(devs) : seedSimDevices()
-            );
-          } catch {}
-        } else {
-          // Fallback: use localStorage coords if present
-          try {
-            const raw = id ? localStorage.getItem(`aura:home:coords:${id}`) : null;
-            if (raw) {
-              const c = JSON.parse(raw);
-              if (c?.lat != null && c?.lon != null) {
-                setLoadingDash(true);
-                const dash = await fetchDashboardByCoords(Number(c.lat), Number(c.lon));
-                setWx(dash);
-                setLoadingDash(false);
-                try {
-                  const his = await fetchWeatherHistory(Number(c.lat), Number(c.lon));
-                  setHistory(his);
-                } catch {}
-                try {
-                  const devs = await listDevices();
-                  setDevices(
-                    Array.isArray(devs) && devs.length > 0 ? withOverrides(devs) : seedSimDevices()
-                  );
-                } catch {
-                  setDevices(seedSimDevices());
-                }
-              }
-            }
-          } catch {}
+        const lat = Number(location.latitude);
+        const lon = Number(location.longitude);
+        const dash =
+          (await fetchDashboardByCoords(lat, lon)) ||
+          (uid ? await fetchDashboardByUser(uid) : null);
+        setWx(dash);
+        try {
+          const his = await fetchWeatherHistory(lat, lon);
+          setHistory(his);
+        } catch {
+          setHistory(null);
         }
       } catch {
+        setWx(null);
+      } finally {
+        setLoadingDash(false);
+      }
+    },
+    []
+  );
+
+  const evaluateRegistration = useCallback(async () => {
+    setNeedsRegistration(null);
+    try {
+      const res = await me();
+      const id = res?.user?.id ? String(res.user.id) : '';
+      setUserId(id);
+      const location = await getMyLocation();
+      if (location) {
+        setHome(location);
+        await loadDashboard(location, id);
+        setNeedsRegistration(false);
+      } else {
+        setHome(null);
         setNeedsRegistration(true);
       }
-    })();
-  }, []);
-
-  // After registration completes, re-fetch location + weather
-  useEffect(() => {
-    if (needsRegistration === false) {
-      (async () => {
-        try {
-          const h = await getMyLocation();
-          setHome(h || null);
-          if (h) {
-            setLoadingDash(true);
-            const dash = await fetchDashboardByCoords(Number(h.latitude), Number(h.longitude));
-            setWx(dash);
-            setLoadingDash(false);
-          }
-        } catch {}
-      })();
+    } catch {
+      setHome(null);
+      setNeedsRegistration(true);
     }
-  }, [needsRegistration]);
+  }, [loadDashboard]);
+
+  useEffect(() => {
+    evaluateRegistration();
+  }, [evaluateRegistration]);
+
+  const handleRegistrationDone = useCallback(() => {
+    evaluateRegistration();
+  }, [evaluateRegistration]);
 
   // Poll devices periodically to reflect simulated updates
   useEffect(() => {
@@ -1045,7 +1014,7 @@ export default function HomeAssistantPanel() {
   }
 
   if (needsRegistration) {
-    return <HomeRegistration userId={userId} onDone={() => setNeedsRegistration(false)} />;
+    return <HomeRegistration userId={userId} onDone={handleRegistrationDone} />;
   }
 
   return (
